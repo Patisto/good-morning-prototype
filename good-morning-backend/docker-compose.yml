@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: good_morning
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      # Keep this development database separate from any PostgreSQL instance
+      # already using the default host port.
+      - '5433:5432'
+    volumes:
+      - good_morning_dev_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/good_morning
+      JWT_SECRET: change-this-to-a-long-random-string
+      JWT_EXPIRES_IN: 12h
+      PORT: 4000
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - '4000:4000'
+
+volumes:
+  good_morning_dev_db_data:

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: good-morning-api
+    runtime: node
+    rootDir: good-morning-backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 12h
+      - key: FRONTEND_URL
+        sync: false
