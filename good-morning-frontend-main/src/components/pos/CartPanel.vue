@@ -3,7 +3,9 @@ import { computed, ref } from 'vue'
 import type { SaleLineItem, PaymentMethod } from '@/types'
 import { formatMWK } from '@/types'
 
-const props = defineProps<{ items: SaleLineItem[] }>()
+const props = withDefaults(defineProps<{ items: SaleLineItem[]; showChangeCalculator?: boolean }>(), {
+  showChangeCalculator: false,
+})
 const emit = defineEmits<{
   'update-quantity': [itemId: string, quantity: number]
   checkout: [paymentMethod: PaymentMethod]
@@ -12,6 +14,15 @@ const emit = defineEmits<{
 const total = computed(() => props.items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0))
 const methods: PaymentMethod[] = ['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK']
 const selectedMethod = ref<PaymentMethod>('CASH')
+const cashReceived = ref<number | null>(null)
+const change = computed(() => Math.max(0, (cashReceived.value ?? 0) - total.value))
+const cashShort = computed(() => Math.max(0, total.value - (cashReceived.value ?? 0)))
+
+function complete() {
+  if (selectedMethod.value === 'CASH' && props.showChangeCalculator && cashShort.value > 0) return
+  emit('checkout', selectedMethod.value)
+  cashReceived.value = null
+}
 </script>
 
 <template>
@@ -68,11 +79,18 @@ const selectedMethod = ref<PaymentMethod>('CASH')
         </button>
       </div>
 
+      <div v-if="showChangeCalculator && selectedMethod === 'CASH'" class="space-y-2 rounded bg-paper p-3 text-sm">
+        <label class="block text-xs font-medium text-ink-muted" for="cash-received">Cash received</label>
+        <input id="cash-received" v-model.number="cashReceived" min="0" type="number" placeholder="Amount given" class="w-full rounded border border-line bg-surface px-2 py-1.5" />
+        <p v-if="cashShort > 0" class="text-danger">Still due: {{ formatMWK(cashShort) }}</p>
+        <p v-else class="font-medium text-success">Change: {{ formatMWK(change) }}</p>
+      </div>
+
       <button
         type="button"
         :disabled="items.length === 0"
         class="w-full rounded bg-primary py-3 font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-40"
-        @click="$emit('checkout', selectedMethod)"
+        @click="complete"
       >
         Complete sale
       </button>

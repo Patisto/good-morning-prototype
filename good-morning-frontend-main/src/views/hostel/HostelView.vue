@@ -5,8 +5,10 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import SearchInput from '@/components/ui/SearchInput.vue'
 import { formatMWK } from '@/types'
 import type { PaymentMethod } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
 const hostel = useHostelStore()
+const auth = useAuthStore()
 const tab = ref<'rooms' | 'tenants' | 'payments'>('rooms')
 const search = ref('')
 
@@ -33,12 +35,18 @@ const filteredTenants = computed(() =>
 )
 
 const payAmount = ref<Record<string, number>>({})
+const roomNames = ref<Record<string, string>>({})
+const canManageRooms = computed(() => ['OWNER', 'ADMINISTRATOR'].includes(auth.role ?? ''))
 
 function pay(tenantId: string, method: PaymentMethod) {
   const amount = payAmount.value[tenantId]
   if (!amount || amount <= 0) return
   hostel.recordPayment(tenantId, amount, method)
   payAmount.value[tenantId] = 0
+}
+
+function saveRoomName(roomId: string, currentLabel?: string) {
+  hostel.renameRoom(roomId, roomNames.value[roomId] ?? currentLabel ?? '')
 }
 </script>
 
@@ -66,6 +74,21 @@ function pay(tenantId: string, method: PaymentMethod) {
             <p class="font-medium">{{ room.label ?? room.identifier }}</p>
             <p class="text-xs text-ink-muted">{{ room.type === 'DOUBLE' ? 'Double' : 'Single' }} · {{ room.occupants }}/{{ room.capacity }}</p>
             <StatusPill class="mt-2" :tone="statusTone(room)" :label="hostel.roomStatus(room).charAt(0) + hostel.roomStatus(room).slice(1).toLowerCase()" />
+            <form
+              v-if="canManageRooms"
+              class="mt-3 flex gap-1"
+              @submit.prevent="saveRoomName(room.id, room.label)"
+            >
+              <input
+                v-model="roomNames[room.id]"
+                :placeholder="room.label ?? room.identifier"
+                aria-label="Room display name"
+                class="min-w-0 flex-1 rounded border border-line px-2 py-1 text-xs"
+              />
+              <button type="submit" class="rounded border border-line px-2 py-1 text-xs font-medium hover:border-primary hover:text-primary">
+                Save
+              </button>
+            </form>
           </div>
         </div>
       </div>

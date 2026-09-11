@@ -83,5 +83,11 @@ export const useRestaurantStore = defineStore('restaurant', {
       void putLocal('foodRecords', record)
       void queueChange('foodRecords', record.id, 'CREATE').then(() => useSyncStore().refreshPendingCount())
     },
+    addMenuItem(item: Omit<MenuItem, 'id'>) {
+      const menuItem: MenuItem = { ...item, id: uid('M') }
+      this.menuItems.push(menuItem)
+      void putLocal('menuItems', menuItem)
+      void queueChange('menuItems', menuItem.id, 'CREATE').then(() => useSyncStore().refreshPendingCount())
+    },
   },
 })

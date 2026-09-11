@@ -47,5 +47,12 @@ export const useHostelStore = defineStore('hostel', {
       void putLocal('payments', payment)
       void queueChange('payments', payment.id).then(() => useSyncStore().refreshPendingCount())
     },
+    renameRoom(roomId: string, label: string) {
+      const room = this.rooms.find((item) => item.id === roomId)
+      if (!room) return
+      room.label = label.trim() || undefined
+      void putLocal('rooms', room)
+      void queueChange('rooms', room.id).then(() => useSyncStore().refreshPendingCount())
+    },
   },
 })

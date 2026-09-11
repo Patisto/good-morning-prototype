@@ -3,8 +3,12 @@ import { useRoute } from 'vue-router'
 import { computed, ref, watch } from 'vue'
 import SidebarNav from './SidebarNav.vue'
 import SyncStatusBadge from './SyncStatusBadge.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const title = computed(() => (route.name ? String(route.name) : ''))
 
 const sidebarOpen = ref(false)
@@ -14,6 +18,11 @@ watch(
     sidebarOpen.value = false
   }
 )
+
+function logout() {
+  auth.logout()
+  router.replace({ name: 'login' })
+}
 </script>
 
 <template>
@@ -34,7 +43,16 @@ watch(
           </button>
           <h1 class="truncate text-lg font-semibold capitalize sm:text-xl">{{ title }}</h1>
         </div>
-        <SyncStatusBadge />
+        <div class="flex items-center gap-2">
+          <SyncStatusBadge />
+          <button
+            type="button"
+            class="rounded border border-line px-3 py-1.5 text-sm font-medium text-ink-muted hover:border-danger hover:text-danger"
+            @click="logout"
+          >
+            Log out
+          </button>
+        </div>
       </header>
       <main class="flex-1 overflow-y-auto p-4 sm:p-6">
         <slot />

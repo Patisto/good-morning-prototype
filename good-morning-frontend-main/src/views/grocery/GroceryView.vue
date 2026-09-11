@@ -7,11 +7,18 @@ import SearchInput from '@/components/ui/SearchInput.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { formatMWK } from '@/types'
 import type { SaleLineItem, PaymentMethod } from '@/types'
+import type { GroceryProduct } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
 const grocery = useGroceryStore()
+const auth = useAuthStore()
 const tab = ref<'sell' | 'products'>('sell')
 const cart = ref<SaleLineItem[]>([])
 const search = ref('')
+const canManageProducts = ['OWNER', 'ADMINISTRATOR', 'GROCERY_MANAGER'].includes(auth.role ?? '')
+const productForm = ref<Omit<GroceryProduct, 'id'>>({
+  name: '', category: '', sellingPrice: 0, buyingPrice: 0, currentStock: 0, lowStockLevel: 0, unit: 'piece',
+})
 
 const filteredProducts = computed(() =>
   grocery.products.filter((p) => p.name.toLowerCase().includes(search.value.toLowerCase()))
@@ -43,6 +50,13 @@ function addStock(productId: string) {
   if (!qty || qty <= 0) return
   grocery.addStock(productId, qty)
   stockInput.value[productId] = 0
+}
+
+function addProduct() {
+  const product = productForm.value
+  if (!product.name.trim() || !product.category.trim() || product.sellingPrice <= 0 || product.buyingPrice < 0) return
+  grocery.addProduct({ ...product, name: product.name.trim(), category: product.category.trim() })
+  productForm.value = { name: '', category: '', sellingPrice: 0, buyingPrice: 0, currentStock: 0, lowStockLevel: 0, unit: 'piece' }
 }
 </script>
 
@@ -77,11 +91,22 @@ function addStock(productId: string) {
           />
         </div>
       </div>
-      <CartPanel :items="cart" @update-quantity="updateQuantity" @checkout="checkout" />
+      <CartPanel :items="cart" :show-change-calculator="true" @update-quantity="updateQuantity" @checkout="checkout" />
     </div>
 
     <!-- PRODUCTS -->
-    <div v-else class="overflow-x-auto rounded border border-line bg-surface">
+    <div v-else class="space-y-3">
+      <form v-if="canManageProducts" class="grid grid-cols-2 gap-2 rounded border border-line bg-surface p-3 sm:grid-cols-4" @submit.prevent="addProduct">
+        <input v-model="productForm.name" required placeholder="Product name" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model="productForm.category" required placeholder="Category" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model.number="productForm.sellingPrice" required min="1" type="number" placeholder="Selling price" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model.number="productForm.buyingPrice" required min="0" type="number" placeholder="Buying price" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model.number="productForm.currentStock" required min="0" type="number" placeholder="Opening stock" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model.number="productForm.lowStockLevel" required min="0" type="number" placeholder="Low-stock level" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model="productForm.unit" required placeholder="Unit (piece, kg…)" class="rounded border border-line px-3 py-2 text-sm" />
+        <button type="submit" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark">Add product</button>
+      </form>
+      <div class="overflow-x-auto rounded border border-line bg-surface">
       <table class="w-full min-w-[720px] text-sm">
         <thead class="border-b border-line bg-paper text-left text-ink-muted">
           <tr>
@@ -125,6 +150,7 @@ function addStock(productId: string) {
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </template>

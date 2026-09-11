@@ -35,6 +35,12 @@ export const useGroceryStore = defineStore('grocery', {
       void putLocal('groceryProducts', product)
       void queueChange('groceryProducts', product.id).then(() => useSyncStore().refreshPendingCount())
     },
+    addProduct(product: Omit<GroceryProduct, 'id'>) {
+      const newProduct: GroceryProduct = { ...product, id: uid('GP') }
+      this.products.push(newProduct)
+      void putLocal('groceryProducts', newProduct)
+      void queueChange('groceryProducts', newProduct.id, 'CREATE').then(() => useSyncStore().refreshPendingCount())
+    },
     completeSale(items: SaleLineItem[], paymentMethod: PaymentMethod, cashier: string) {
       const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
       const sale: Sale = {

@@ -6,10 +6,14 @@ import CartPanel from '@/components/pos/CartPanel.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import { formatMWK } from '@/types'
 import type { SaleLineItem, PaymentMethod } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
 const restaurant = useRestaurantStore()
+const auth = useAuthStore()
 const tab = ref<'sell' | 'menu' | 'food'>('sell')
 const cart = ref<SaleLineItem[]>([])
+const canManageMenu = ['OWNER', 'ADMINISTRATOR', 'RESTAURANT_MANAGER'].includes(auth.role ?? '')
+const menuForm = ref({ name: '', category: '', sellingPrice: 0, available: true })
 
 function addToCart(itemId: string, name: string, unitPrice: number) {
   const existing = cart.value.find((i) => i.itemId === itemId)
@@ -29,6 +33,12 @@ function updateQuantity(itemId: string, quantity: number) {
 function checkout(paymentMethod: PaymentMethod) {
   restaurant.completeSale(cart.value, paymentMethod, 'Grace M.')
   cart.value = []
+}
+
+function addMenuItem() {
+  if (!menuForm.value.name.trim() || !menuForm.value.category.trim() || menuForm.value.sellingPrice <= 0) return
+  restaurant.addMenuItem({ ...menuForm.value, name: menuForm.value.name.trim(), category: menuForm.value.category.trim() })
+  menuForm.value = { name: '', category: '', sellingPrice: 0, available: true }
 }
 </script>
 
@@ -63,7 +73,14 @@ function checkout(paymentMethod: PaymentMethod) {
     </div>
 
     <!-- MENU -->
-    <div v-else-if="tab === 'menu'" class="overflow-x-auto rounded border border-line bg-surface">
+    <div v-else-if="tab === 'menu'" class="space-y-3">
+      <form v-if="canManageMenu" class="grid grid-cols-1 gap-2 rounded border border-line bg-surface p-3 sm:grid-cols-4" @submit.prevent="addMenuItem">
+        <input v-model="menuForm.name" required placeholder="Menu item name" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model="menuForm.category" required placeholder="Category" class="rounded border border-line px-3 py-2 text-sm" />
+        <input v-model.number="menuForm.sellingPrice" required min="1" type="number" placeholder="Selling price" class="rounded border border-line px-3 py-2 text-sm" />
+        <button type="submit" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark">Add menu item</button>
+      </form>
+      <div class="overflow-x-auto rounded border border-line bg-surface">
       <table class="w-full min-w-[520px] text-sm">
         <thead class="border-b border-line bg-paper text-left text-ink-muted">
           <tr>
@@ -84,6 +101,7 @@ function checkout(paymentMethod: PaymentMethod) {
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- FOOD RECORDS -->
