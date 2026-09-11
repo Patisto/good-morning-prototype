@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth'
+import logo from '@/goodmorniglogo.png'
 
 const auth = useAuthStore()
 
@@ -31,9 +32,12 @@ const links: { to: string; label: string; section: NavSection | null }[] = [
     :class="{ 'translate-x-0': open }"
   >
     <div class="flex items-center justify-between px-5 py-6">
-      <div>
-        <p class="text-lg font-semibold leading-tight">Good Morning</p>
-        <p class="text-sm text-ink-muted">Hostel · Restaurant · Grocery</p>
+      <div class="flex items-center gap-3">
+        <img :src="logo" alt="Good Morning" class="h-10 w-10 shrink-0 rounded-xl object-cover" />
+        <div>
+          <p class="text-lg font-semibold leading-tight">Good Morning</p>
+          <p class="text-sm text-ink-muted">Hostel · Restaurant · Grocery</p>
+        </div>
       </div>
       <button
         type="button"

@@ -5,6 +5,7 @@ import SidebarNav from './SidebarNav.vue'
 import SyncStatusBadge from './SyncStatusBadge.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import logo from '@/goodmorniglogo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +42,7 @@ function logout() {
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
+          <img :src="logo" alt="Good Morning" class="h-9 w-9 shrink-0 rounded-lg object-cover lg:hidden" />
           <h1 class="truncate text-lg font-semibold capitalize sm:text-xl">{{ title }}</h1>
         </div>
         <div class="flex items-center gap-2">

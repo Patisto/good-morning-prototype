@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import logo from '@/goodmorniglogo.png'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -26,6 +27,7 @@ async function submit() {
   <div class="flex min-h-screen items-center justify-center bg-paper px-4 py-10">
     <div class="w-full max-w-sm">
       <div class="mb-8 text-center">
+        <img :src="logo" alt="Good Morning" class="mx-auto mb-3 h-20 w-20 rounded-2xl object-cover shadow-sm" />
         <p class="text-2xl font-semibold leading-tight">Good Morning</p>
         <p class="text-sm text-ink-muted">Hostel · Restaurant · Grocery</p>
       </div>
