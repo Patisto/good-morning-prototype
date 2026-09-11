@@ -29,12 +29,28 @@ export interface Room {
 export interface Tenant {
   id: string
   firstName: string
+  middleName?: string
   lastName: string
+  gender?: string
+  dateOfBirth?: string
   phone: string
+  altPhone?: string
+  email?: string
+  homeDistrict?: string
+  homeAddress?: string
+  emergencyContactName?: string
+  emergencyContactPhone?: string
+  emergencyContactRelationship?: string
   institution?: string
   programme?: string
+  faculty?: string
+  department?: string
+  yearOfStudy?: number
+  regNumber?: string
+  academicYear?: string
   roomId: string
   monthlyAmount: number
+  deposit?: number
   moveInDate: string
   agreementStatus: 'PENDING' | 'SIGNED' | 'EXPIRED'
 }

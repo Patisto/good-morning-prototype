@@ -3,6 +3,7 @@ import { rooms, tenants, hostelPayments } from '@/data/mock'
 import type { Room, Tenant, HostelPayment, RoomStatus } from '@/types'
 import { useSyncStore } from './sync'
 import { putLocal, queueChange, seedLocal } from '@/lib/local-db'
+import { uid } from '@/types'
 
 export const useHostelStore = defineStore('hostel', {
   state: () => ({
@@ -53,6 +54,50 @@ export const useHostelStore = defineStore('hostel', {
       room.label = label.trim() || undefined
       void putLocal('rooms', room)
       void queueChange('rooms', room.id).then(() => useSyncStore().refreshPendingCount())
+    },
+    addTenant(tenant: Omit<Tenant, 'id'>): boolean {
+      const room = this.rooms.find((item) => item.id === tenant.roomId)
+      if (!room || room.occupants >= room.capacity) return false
+      const newTenant: Tenant = { ...tenant, id: uid('T') }
+      const today = new Date()
+      const initialPayment: HostelPayment = {
+        id: uid('HP'),
+        tenantId: newTenant.id,
+        periodLabel: today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        expectedAmount: newTenant.monthlyAmount,
+        amountPaid: 0,
+      }
+      this.tenants.push(newTenant)
+      this.payments.unshift(initialPayment)
+      room.occupants += 1
+      void Promise.all([putLocal('tenants', newTenant), putLocal('payments', initialPayment), putLocal('rooms', room)])
+      void Promise.all([
+        queueChange('tenants', newTenant.id, 'CREATE'),
+        queueChange('payments', initialPayment.id, 'CREATE'),
+        queueChange('rooms', room.id),
+      ]).then(() => useSyncStore().refreshPendingCount())
+      return true
+    },
+    updateTenant(tenant: Tenant): boolean {
+      const existing = this.tenants.find((item) => item.id === tenant.id)
+      if (!existing) return false
+      const oldRoom = this.rooms.find((item) => item.id === existing.roomId)
+      const newRoom = this.rooms.find((item) => item.id === tenant.roomId)
+      if (!newRoom || (newRoom.id !== existing.roomId && newRoom.occupants >= newRoom.capacity)) return false
+
+      if (oldRoom && oldRoom.id !== newRoom.id) oldRoom.occupants = Math.max(0, oldRoom.occupants - 1)
+      if (newRoom.id !== existing.roomId) newRoom.occupants += 1
+      Object.assign(existing, tenant)
+
+      const roomWrites = [putLocal('rooms', newRoom)]
+      const roomChanges = [queueChange('rooms', newRoom.id)]
+      if (oldRoom && oldRoom.id !== newRoom.id) {
+        roomWrites.push(putLocal('rooms', oldRoom))
+        roomChanges.push(queueChange('rooms', oldRoom.id))
+      }
+      void Promise.all([putLocal('tenants', existing), ...roomWrites])
+      void Promise.all([queueChange('tenants', existing.id), ...roomChanges]).then(() => useSyncStore().refreshPendingCount())
+      return true
     },
   },
 })
