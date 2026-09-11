@@ -7,7 +7,7 @@ const auth = useAuthStore()
 defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
 
-type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'expenses' | 'settings'
+type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'expenses'
 
 const links: { to: string; label: string; section: NavSection | null }[] = [
   { to: '/', label: 'Dashboard', section: null },
@@ -15,7 +15,6 @@ const links: { to: string; label: string; section: NavSection | null }[] = [
   { to: '/restaurant', label: 'Restaurant', section: 'restaurant' },
   { to: '/grocery', label: 'Grocery', section: 'grocery' },
   { to: '/expenses', label: 'Expenses', section: 'expenses' },
-  { to: '/settings', label: 'Settings', section: 'settings' },
 ]
 </script>
 

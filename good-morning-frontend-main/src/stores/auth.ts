@@ -39,7 +39,7 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.token && !!state.user,
     name: (state) => state.user?.name ?? '',
     role: (state) => state.user?.role ?? null,
-    canSee: (state) => (section: 'hostel' | 'restaurant' | 'grocery' | 'expenses' | 'settings') => {
+    canSee: (state) => (section: 'hostel' | 'restaurant' | 'grocery' | 'expenses') => {
       const role = state.user?.role
       if (!role) return false
       const full = ['OWNER', 'ADMINISTRATOR']
@@ -48,7 +48,6 @@ export const useAuthStore = defineStore('auth', {
       if (section === 'restaurant') return ['RESTAURANT_MANAGER', 'RESTAURANT_CASHIER', 'ACCOUNTANT'].includes(role)
       if (section === 'grocery') return ['GROCERY_MANAGER', 'GROCERY_CASHIER', 'ACCOUNTANT'].includes(role)
       if (section === 'expenses') return role === 'ACCOUNTANT'
-      if (section === 'settings') return role === 'SYSTEM_ADMINISTRATOR'
       return false
     },
   },
