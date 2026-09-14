@@ -19,6 +19,7 @@ const canManageProducts = ['OWNER', 'ADMINISTRATOR', 'GROCERY_MANAGER'].includes
 const productForm = ref<Omit<GroceryProduct, 'id'>>({
   name: '', category: '', sellingPrice: 0, buyingPrice: 0, currentStock: 0, lowStockLevel: 0, unit: 'piece',
 })
+const editingProductId = ref<string | null>(null)
 
 const filteredProducts = computed(() =>
   grocery.products.filter((p) => p.name.toLowerCase().includes(search.value.toLowerCase()))
@@ -26,8 +27,10 @@ const filteredProducts = computed(() =>
 
 function addToCart(itemId: string, name: string, unitPrice: number) {
   const existing = cart.value.find((i) => i.itemId === itemId)
-  if (existing) existing.quantity += 1
-  else cart.value.push({ itemId, name, quantity: 1, unitPrice })
+  const stock = grocery.products.find((product) => product.id === itemId)?.currentStock ?? 0
+  if (existing) {
+    if (existing.quantity < stock) existing.quantity += 1
+  } else if (stock > 0) cart.value.push({ itemId, name, quantity: 1, unitPrice })
 }
 
 function updateQuantity(itemId: string, quantity: number) {
@@ -36,12 +39,13 @@ function updateQuantity(itemId: string, quantity: number) {
     return
   }
   const item = cart.value.find((i) => i.itemId === itemId)
-  if (item) item.quantity = quantity
+  const stock = grocery.products.find((product) => product.id === itemId)?.currentStock ?? 0
+  if (item) item.quantity = Math.min(quantity, stock)
 }
 
 function checkout(paymentMethod: PaymentMethod) {
-  grocery.completeSale(cart.value, paymentMethod, 'Yamikani C.')
-  cart.value = []
+  const sale = grocery.completeSale(cart.value, paymentMethod, 'Yamikani C.')
+  if (sale) cart.value = []
 }
 
 const stockInput = ref<Record<string, number>>({})
@@ -55,9 +59,13 @@ function addStock(productId: string) {
 function addProduct() {
   const product = productForm.value
   if (!product.name.trim() || !product.category.trim() || product.sellingPrice <= 0 || product.buyingPrice < 0) return
-  grocery.addProduct({ ...product, name: product.name.trim(), category: product.category.trim() })
-  productForm.value = { name: '', category: '', sellingPrice: 0, buyingPrice: 0, currentStock: 0, lowStockLevel: 0, unit: 'piece' }
+  const cleanProduct = { ...product, name: product.name.trim(), category: product.category.trim() }
+  if (editingProductId.value) grocery.updateProduct({ ...cleanProduct, id: editingProductId.value })
+  else grocery.addProduct(cleanProduct)
+  clearProductForm()
 }
+function editProduct(product: GroceryProduct) { editingProductId.value = product.id; productForm.value = { ...product } }
+function clearProductForm() { editingProductId.value = null; productForm.value = { name: '', category: '', sellingPrice: 0, buyingPrice: 0, currentStock: 0, lowStockLevel: 0, unit: 'piece' } }
 </script>
 
 <template>
@@ -104,7 +112,8 @@ function addProduct() {
         <input v-model.number="productForm.currentStock" required min="0" type="number" placeholder="Opening stock" class="rounded border border-line px-3 py-2 text-sm" />
         <input v-model.number="productForm.lowStockLevel" required min="0" type="number" placeholder="Low-stock level" class="rounded border border-line px-3 py-2 text-sm" />
         <input v-model="productForm.unit" required placeholder="Unit (piece, kg…)" class="rounded border border-line px-3 py-2 text-sm" />
-        <button type="submit" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark">Add product</button>
+        <button type="submit" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark">{{ editingProductId ? 'Save changes' : 'Add product' }}</button>
+        <button v-if="editingProductId" type="button" class="rounded border border-line px-3 py-2 text-sm" @click="clearProductForm">Cancel</button>
       </form>
       <div class="overflow-x-auto rounded border border-line bg-surface">
       <table class="w-full min-w-[720px] text-sm">
@@ -116,6 +125,7 @@ function addProduct() {
             <th class="px-4 py-2 font-medium">Stock</th>
             <th class="px-4 py-2 font-medium">Status</th>
             <th class="px-4 py-2 font-medium">Add stock</th>
+            <th v-if="canManageProducts" class="px-4 py-2 font-medium">Edit</th>
           </tr>
         </thead>
         <tbody>
@@ -130,6 +140,7 @@ function addProduct() {
                 :label="p.currentStock <= p.lowStockLevel ? 'Low stock' : 'In stock'"
               />
             </td>
+            <td v-if="canManageProducts" class="px-4 py-2"><button type="button" class="text-primary hover:underline" @click="editProduct(p)">Edit</button></td>
             <td class="px-4 py-2">
               <div class="flex items-center gap-2">
                 <input

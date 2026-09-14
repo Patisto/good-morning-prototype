@@ -86,6 +86,8 @@ export interface MenuItem {
   category: string
   sellingPrice: number
   available: boolean
+  currentStock: number
+  lowStockLevel: number
 }
 
 export interface SaleLineItem {

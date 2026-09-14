@@ -4,6 +4,7 @@ import type { FoodItem, DailyFoodRecord, MenuItem, Sale, SaleLineItem, PaymentMe
 import { uid } from '@/types'
 import { useSyncStore } from './sync'
 import { putLocal, queueChange, seedLocal } from '@/lib/local-db'
+import { configuredRestaurantMenu } from '@/data/restaurant-menu'
 
 export const useRestaurantStore = defineStore('restaurant', {
   state: () => ({
@@ -48,12 +49,18 @@ export const useRestaurantStore = defineStore('restaurant', {
       ])
       this.foodItems = storedFoodItems
       this.dailyFoodRecords = storedFoodRecords
-      this.menuItems = storedMenuItems
+      // Keep an existing local catalogue, but add the configured starter menu
+      // exactly once for people already using the prototype.
+      const normalized = storedMenuItems.map((item) => ({ ...item, currentStock: item.currentStock ?? 0, lowStockLevel: item.lowStockLevel ?? 0 }))
+      const additions = configuredRestaurantMenu.filter((item) => !normalized.some((stored) => stored.name.toLowerCase() === item.name.toLowerCase()))
+      this.menuItems = [...normalized, ...additions]
+      await Promise.all(additions.map((item) => putLocal('menuItems', item)))
       this.sales = storedSales
       this.hydrated = true
     },
     completeSale(items: SaleLineItem[], paymentMethod: PaymentMethod, cashier: string) {
       if (items.length === 0) return
+      if (items.some((line) => (this.menuItems.find((item) => item.id === line.itemId)?.currentStock ?? 0) < line.quantity)) return
       const total = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
       const sale: Sale = {
         id: uid('RS'),
@@ -67,14 +74,21 @@ export const useRestaurantStore = defineStore('restaurant', {
         syncStatus: 'PENDING',
       }
       this.sales.unshift(sale)
-      void putLocal('restaurantSales', sale)
+      for (const line of items) {
+        const menuItem = this.menuItems.find((item) => item.id === line.itemId)
+        if (menuItem) menuItem.currentStock = Math.max(0, menuItem.currentStock - line.quantity)
+      }
+      void Promise.all([putLocal('restaurantSales', sale), ...items.map((line) => {
+        const menuItem = this.menuItems.find((item) => item.id === line.itemId)
+        return menuItem ? putLocal('menuItems', menuItem) : Promise.resolve()
+      })])
       void queueChange('restaurantSales', sale.id, 'CREATE').then(() => useSyncStore().refreshPendingCount())
       return sale
     },
-    addFoodRecord(foodItemId: string, quantity: number, cost: number) {
+    addFoodRecord(foodItemId: string, quantity: number, cost: number, date = new Date().toISOString().slice(0, 10)) {
       this.dailyFoodRecords.unshift({
         id: uid('D'),
-        date: '2026-09-10',
+        date,
         foodItemId,
         quantity,
         cost,
@@ -88,6 +102,13 @@ export const useRestaurantStore = defineStore('restaurant', {
       this.menuItems.push(menuItem)
       void putLocal('menuItems', menuItem)
       void queueChange('menuItems', menuItem.id, 'CREATE').then(() => useSyncStore().refreshPendingCount())
+    },
+    updateMenuItem(item: MenuItem) {
+      const current = this.menuItems.find((entry) => entry.id === item.id)
+      if (!current) return
+      Object.assign(current, item)
+      void putLocal('menuItems', current)
+      void queueChange('menuItems', current.id).then(() => useSyncStore().refreshPendingCount())
     },
   },
 })

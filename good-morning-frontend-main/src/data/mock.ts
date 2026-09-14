@@ -82,14 +82,14 @@ export const dailyFoodRecords: DailyFoodRecord[] = [
 ]
 
 export const menuItems: MenuItem[] = [
-  { id: 'M-001', name: 'Nsima + Beef', category: 'Meals', sellingPrice: 3500, available: true },
-  { id: 'M-002', name: 'Nsima + Chicken', category: 'Meals', sellingPrice: 3200, available: true },
-  { id: 'M-003', name: 'Nsima + Utaka', category: 'Meals', sellingPrice: 2800, available: true },
-  { id: 'M-004', name: 'Nsima + Matemba', category: 'Meals', sellingPrice: 2600, available: true },
-  { id: 'M-005', name: 'Rice + Beef', category: 'Meals', sellingPrice: 3800, available: true },
-  { id: 'M-006', name: 'Rice + Chicken', category: 'Meals', sellingPrice: 3500, available: true },
-  { id: 'M-007', name: 'Banana', category: 'Extras', sellingPrice: 500, available: true },
-  { id: 'M-008', name: 'Soft Drink', category: 'Extras', sellingPrice: 1000, available: true },
+  { id: 'M-001', name: 'Nsima + Beef', category: 'Meals', sellingPrice: 3500, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-002', name: 'Nsima + Chicken', category: 'Meals', sellingPrice: 3200, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-003', name: 'Nsima + Utaka', category: 'Meals', sellingPrice: 2800, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-004', name: 'Nsima + Matemba', category: 'Meals', sellingPrice: 2600, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-005', name: 'Rice + Beef', category: 'Meals', sellingPrice: 3800, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-006', name: 'Rice + Chicken', category: 'Meals', sellingPrice: 3500, available: true, currentStock: 30, lowStockLevel: 5 },
+  { id: 'M-007', name: 'Banana', category: 'Extras', sellingPrice: 500, available: true, currentStock: 40, lowStockLevel: 5 },
+  { id: 'M-008', name: 'Soft Drink', category: 'Extras', sellingPrice: 1000, available: true, currentStock: 40, lowStockLevel: 5 },
 ]
 
 export const restaurantSales: Sale[] = [
