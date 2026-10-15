@@ -17,7 +17,7 @@ const emit = defineEmits<{
 }>();
 const auth = useAuthStore(), { busy, error, run } = useTask();
 const options = props.businesses.filter(b => b !== 'RESTAURANT');
-const form = ref({ description: '', amount: null as number | null, business: props.business && options.includes(props.business) ? props.business : options[0], date: today(), paymentMethod: 'CASH' as PaymentMethod, notes: '' });
+const form = ref({ description: '', amount: null as number | null, business: props.business && props.business !== 'RESTAURANT' && options.includes(props.business) ? props.business : options[0], date: today(), paymentMethod: 'CASH' as PaymentMethod, notes: '' });
 async function save() {
     await run(async () => { await api.post('/expenses', form.value, auth.token); emit('saved'); emit('close'); });
 }
