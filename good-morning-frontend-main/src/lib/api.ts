@@ -1,5 +1,5 @@
 import { useNotificationsStore } from '@/stores/notifications';
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api';
+const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api').replace(/\/+$/, '');
 export class ApiError extends Error {
     status: number;
     constructor(message: string, status: number) {
@@ -14,7 +14,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
     };
     if (token)
         headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+    const res = await fetch(`${BASE_URL}/${path.replace(/^\/+/, '')}`, { ...options, headers });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         throw new ApiError(data.error ?? 'Something went wrong.', res.status);
