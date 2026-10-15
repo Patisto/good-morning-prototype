@@ -1,29 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useSyncStore } from '@/stores/sync'
-
-const sync = useSyncStore()
-
-const state = computed(() => {
-  if (sync.connection === 'OFFLINE') return { label: 'Offline', dot: 'bg-danger', tone: 'text-danger' }
-  if (sync.pendingCount > 0)
-    return { label: `${sync.pendingCount} change${sync.pendingCount > 1 ? 's' : ''} waiting`, dot: 'bg-pending', tone: 'text-pending' }
-  return { label: 'Synced', dot: 'bg-success', tone: 'text-success' }
-})
-
-function handleClick() {
-  void sync.flushIfOnline()
-}
+import { ref, onMounted, onUnmounted } from 'vue';
+const online = ref(navigator.onLine);
+const update = () => { online.value = navigator.onLine; };
+onMounted(() => { window.addEventListener('online', update); window.addEventListener('offline', update); });
+onUnmounted(() => { window.removeEventListener('online', update); window.removeEventListener('offline', update); });
 </script>
-
-<template>
-  <button
-    type="button"
-    class="flex items-center gap-2 rounded border border-line bg-surface px-3 py-1.5 text-sm hover:border-ink-faint"
-    title="Checks the durable local sync queue"
-    @click="handleClick"
-  >
-    <span class="h-2 w-2 rounded-full" :class="state.dot" />
-    <span :class="state.tone">{{ state.label }}</span>
-  </button>
-</template>
+<template><span class="text-xs" :class="online ? 'text-ink-muted' : 'text-danger'">{{ online ? 'Server-backed records' : 'Offline · reconnect to save' }}</span></template>

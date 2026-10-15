@@ -1,21 +1,27 @@
 <script setup lang="ts">
-import { useAuthStore } from '@/stores/auth'
-import logo from '@/goodmorniglogo.png'
-
-const auth = useAuthStore()
-
-defineProps<{ open: boolean }>()
-defineEmits<{ close: [] }>()
-
-type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'expenses'
-
-const links: { to: string; label: string; section: NavSection | null }[] = [
-  { to: '/', label: 'Dashboard', section: null },
-  { to: '/hostel', label: 'Hostel', section: 'hostel' },
-  { to: '/restaurant', label: 'Restaurant', section: 'restaurant' },
-  { to: '/grocery', label: 'Grocery', section: 'grocery' },
-  { to: '/expenses', label: 'Expenses', section: 'expenses' },
-]
+import { useAuthStore } from '@/stores/auth';
+import logo from '@/goodmorniglogo.png';
+const auth = useAuthStore();
+defineProps<{
+    open: boolean;
+}>();
+defineEmits<{
+    close: [
+    ];
+}>();
+type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'finance' | 'users';
+const links: {
+    to: string;
+    label: string;
+    section: NavSection | null;
+}[] = [
+    { to: '/', label: 'Dashboard', section: null },
+    { to: '/hostel', label: 'Hostel', section: 'hostel' },
+    { to: '/restaurant', label: 'Restaurant', section: 'restaurant' },
+    { to: '/grocery', label: 'Grocery', section: 'grocery' },
+    { to: '/finance', label: 'Finance', section: 'finance' },
+    { to: '/team', label: 'Team & roles', section: 'users' },
+];
 </script>
 
 <template>

@@ -24,3 +24,16 @@ body {
   outline: 2px solid theme('colors.primary.DEFAULT');
   outline-offset: 2px;
 }
+
+@layer components {
+  .panel { @apply rounded-lg border border-line bg-surface p-4 sm:p-5; }
+  .field { @apply flex flex-col gap-1 text-sm text-ink-muted; }
+  .input { @apply min-w-0 rounded border border-line bg-surface px-3 py-2 text-sm text-ink; }
+  .btn { @apply rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-secondary { @apply rounded border border-line bg-surface px-3 py-2 text-sm hover:border-primary disabled:opacity-50; }
+  .error { @apply rounded bg-danger-light p-3 text-sm text-danger; }
+  .tabs { @apply flex flex-wrap gap-2 border-b border-line pb-3; }
+  .data-table { @apply w-full text-left text-sm; }
+  .data-table th { @apply border-b border-line bg-paper px-3 py-3 font-medium text-ink-muted; }
+  .data-table td { @apply border-b border-line px-3 py-3; }
+}

@@ -1,91 +1,420 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useHostelStore } from '@/stores/hostel'
-import { useAuthStore } from '@/stores/auth'
-import StatusPill from '@/components/ui/StatusPill.vue'
-import SearchInput from '@/components/ui/SearchInput.vue'
-import { formatMWK } from '@/types'
-import type { PaymentMethod, Room, Tenant } from '@/types'
-
-type TenantDraft = Omit<Tenant, 'id'>
-const hostel = useHostelStore()
-const auth = useAuthStore()
-const tab = ref<'rooms' | 'tenants' | 'payments'>('rooms')
-const search = ref('')
-const payAmount = ref<Record<string, number>>({})
-const roomNames = ref<Record<string, string>>({})
-const selectedRoom = ref<Room | null>(null)
-const selectedTenant = ref<Tenant | null>(null)
-const editing = ref(false)
-const savingError = ref('')
-const canManage = computed(() => ['OWNER', 'ADMINISTRATOR', 'HOSTEL_MANAGER'].includes(auth.role ?? ''))
+import { computed, ref, onMounted, watch } from 'vue';
+import { useHostelStore } from '@/stores/hostel';
+import { useAuthStore } from '@/stores/auth';
+import RentPayments from '@/components/management/RentPayments.vue';
+import RoomConfiguration from '@/components/management/RoomConfiguration.vue';
+import ReceivePaymentModal from '@/components/management/ReceivePaymentModal.vue';
+import FormModal from '@/components/ui/FormModal.vue';
+import { useTask } from '@/composables/useTask';
+import { downloadAgreement } from '@/lib/accommodation-agreement';
+import StatusPill from '@/components/ui/StatusPill.vue';
+import SearchInput from '@/components/ui/SearchInput.vue';
+import { formatMWK, today } from '@/types';
+import type { Room, Tenant } from '@/types';
+type TenantDraft = Omit<Tenant, 'id'>;
+const hostel = useHostelStore();
+const auth = useAuthStore();
+const tab = ref('rooms');
+const unitFilter = ref('');
+const paymentTenant = ref<string | null>(null);
+const { busy, error, run } = useTask();
+onMounted(() => run(() => hostel.hydrate()));
+const search = ref('');
+const selectedRoom = ref<Room | null>(null);
+const selectedTenant = ref<Tenant | null>(null);
+const editing = ref(false);
+const savingError = ref('');
+const canManage = computed(() => auth.canManage('hostel'));
 const roomsByUnit = computed(() => {
-  const groups = new Map<string, Room[]>()
-  for (const room of hostel.rooms) {
-    if (!groups.has(room.housingUnit)) groups.set(room.housingUnit, [])
-    groups.get(room.housingUnit)!.push(room)
-  }
-  return groups
-})
-const filteredTenants = computed(() => hostel.tenants.filter((tenant) => `${tenant.firstName} ${tenant.lastName} ${tenant.roomId}`.toLowerCase().includes(search.value.toLowerCase())))
-const roomOccupants = computed(() => selectedRoom.value ? hostel.tenantByRoom(selectedRoom.value.id) : [])
-const availableRooms = computed(() => hostel.rooms.filter((room) => room.occupants < room.capacity || room.id === selectedTenant.value?.roomId))
-
+    const groups = new Map<string, Room[]>();
+    for (const room of hostel.rooms) {
+        if (unitFilter.value && room.housingUnitId !== unitFilter.value)
+            continue;
+        if (!groups.has(room.housingUnit))
+            groups.set(room.housingUnit, []);
+        groups.get(room.housingUnit)!.push(room);
+    }
+    return groups;
+});
+const filteredTenants = computed(() => hostel.tenants.filter((tenant) => !tenant.checkoutDate && `${tenant.firstName} ${tenant.lastName} ${tenant.roomId}`.toLowerCase().includes(search.value.toLowerCase())));
+const roomName = (id: string) => { const room = hostel.rooms.find(r => r.id === id); return room?.label || room?.identifier || id; };
+const roomOccupants = computed(() => selectedRoom.value ? hostel.tenantByRoom(selectedRoom.value.id) : []);
+const availableRooms = computed(() => hostel.rooms.filter((room) => room.occupants < room.capacity || room.id === selectedTenant.value?.roomId));
 function blankTenant(): TenantDraft {
-  return { firstName: '', middleName: '', lastName: '', gender: '', dateOfBirth: '', phone: '', altPhone: '', email: '', homeDistrict: '', homeAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelationship: '', institution: '', programme: '', faculty: '', department: '', yearOfStudy: undefined, regNumber: '', academicYear: '', roomId: '', monthlyAmount: 0, deposit: 0, moveInDate: new Date().toISOString().slice(0, 10), agreementStatus: 'PENDING' }
+    return { firstName: '', middleName: '', lastName: '', gender: '', dateOfBirth: '', phone: '', altPhone: '', email: '', homeDistrict: '', homeAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelationship: '', institution: '', programme: '', faculty: '', department: '', yearOfStudy: undefined, regNumber: '', academicYear: '', roomId: '', monthlyAmount: 0, deposit: 0, moveInDate: today(), agreementStatus: 'PENDING' };
 }
-const form = ref<TenantDraft>(blankTenant())
-function statusTone(room: Room) { const status = hostel.roomStatus(room); return status === 'OCCUPIED' ? 'success' : status === 'PARTIAL' ? 'pending' : 'neutral' }
-function pay(tenantId: string, method: PaymentMethod) { const amount = payAmount.value[tenantId]; if (!amount || amount <= 0) return; hostel.recordPayment(tenantId, amount, method); payAmount.value[tenantId] = 0 }
-function openRoom(room: Room) { selectedRoom.value = room }
-function viewTenant(tenant: Tenant) { selectedRoom.value = null; selectedTenant.value = tenant; editing.value = false }
-function addTenant() { selectedTenant.value = null; form.value = blankTenant(); savingError.value = ''; editing.value = true }
-function editTenant() { if (!selectedTenant.value) return; form.value = { ...selectedTenant.value }; savingError.value = ''; editing.value = true }
-function saveTenant() {
-  savingError.value = ''
-  if (!form.value.firstName.trim() || !form.value.lastName.trim() || !form.value.phone.trim() || !form.value.roomId || form.value.monthlyAmount <= 0) { savingError.value = 'Name, phone, room, and monthly amount are required.'; return }
-  const isNewTenant = !selectedTenant.value
-  const saved = selectedTenant.value ? hostel.updateTenant({ ...form.value, id: selectedTenant.value.id }) : hostel.addTenant(form.value)
-  if (!saved) { savingError.value = 'That room is full. Choose another available room.'; return }
-  selectedTenant.value = selectedTenant.value ? hostel.tenants.find((tenant) => tenant.id === selectedTenant.value?.id) ?? null : hostel.tenants[hostel.tenants.length - 1] ?? null
-  editing.value = false
-  if (isNewTenant && selectedTenant.value) downloadAgreement(selectedTenant.value)
+const form = ref<TenantDraft>(blankTenant());
+function statusTone(room: Room) { const status = hostel.roomStatus(room); return status === 'OCCUPIED' ? 'success' : status === 'PARTIAL' ? 'pending' : 'neutral'; }
+function openRoom(room: Room) { selectedRoom.value = room; }
+function viewTenant(tenant: Tenant) { selectedRoom.value = null; selectedTenant.value = tenant; editing.value = false; }
+function addTenant() { selectedTenant.value = null; form.value = blankTenant(); savingError.value = ''; editing.value = true; }
+function editTenant() {
+    if (!selectedTenant.value)
+        return;
+    form.value = { ...selectedTenant.value };
+    savingError.value = '';
+    editing.value = true;
 }
-function downloadAgreement(tenant: Tenant) {
-  const room = hostel.rooms.find((entry) => entry.id === tenant.roomId)
-  const fullName = [tenant.firstName, tenant.middleName, tenant.lastName].filter(Boolean).join(' ')
-  const escape = (value: string | number | undefined) => String(value ?? '—').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Accommodation Agreement — ${escape(fullName)}</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;color:#1b211c;line-height:1.55}h1{text-align:center;color:#1f5b4c}h2{font-size:16px;margin-top:28px}table{width:100%;border-collapse:collapse}td{border:1px solid #dcded6;padding:9px}td:first-child{font-weight:bold;width:38%}.signature{margin-top:80px;display:flex;justify-content:space-between;gap:30px}.signature div{border-top:1px solid #1b211c;padding-top:6px;min-width:200px}</style></head><body><h1>Good Morning Accommodation Agreement</h1><p>This agreement confirms the accommodation arrangement between Good Morning and the tenant named below.</p><table><tr><td>Tenant name</td><td>${escape(fullName)}</td></tr><tr><td>Phone</td><td>${escape(tenant.phone)}</td></tr><tr><td>Institution / programme</td><td>${escape(tenant.institution)} / ${escape(tenant.programme)}</td></tr><tr><td>Housing unit</td><td>${escape(room?.housingUnit)}</td></tr><tr><td>Room</td><td>${escape(room?.label ?? room?.identifier ?? tenant.roomId)}</td></tr><tr><td>Move-in date</td><td>${escape(tenant.moveInDate)}</td></tr><tr><td>Monthly accommodation amount</td><td>${escape(formatMWK(tenant.monthlyAmount))}</td></tr><tr><td>Deposit</td><td>${escape(formatMWK(tenant.deposit ?? 0))}</td></tr></table><h2>Terms</h2><ol><li>The tenant agrees to pay the accommodation amount as agreed and keep the assigned room and shared areas clean.</li><li>The room may not be transferred, sublet, or occupied beyond its approved capacity without written approval.</li><li>Good Morning may enforce reasonable hostel rules to protect residents, property, and safety.</li><li>This agreement remains subject to the applicable Good Morning accommodation policies.</li></ol><p>I have read and agree to these terms.</p><div class="signature"><div>Tenant signature and date</div><div>Good Morning representative</div></div></body></html>`
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `good-morning-agreement-${tenant.roomId}-${tenant.lastName}.html`
-  anchor.click()
-  URL.revokeObjectURL(url)
+watch(() => form.value.roomId, id => { form.value.monthlyAmount = hostel.rooms.find(r => r.id === id)?.monthlyPrice ?? 0; });
+async function saveTenant() {
+    savingError.value = '';
+    await run(async () => {
+        const result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: selectedTenant.value.id }) : await hostel.addTenant(form.value);
+        selectedTenant.value = hostel.tenants.find(t => t.id === result.id) ?? null;
+        editing.value = false;
+    });
+    savingError.value = error.value;
 }
-function saveRoomName(roomId: string, currentLabel?: string) { hostel.renameRoom(roomId, roomNames.value[roomId] ?? currentLabel ?? '') }
-function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false }
+async function checkout() {
+    if (!selectedTenant.value || !confirm('Check out this tenant today? Payment history will be retained.'))
+        return;
+    await run(async () => {
+        await hostel.mutate(`/tenants/${selectedTenant.value!.id}/checkout`, { date: today() });
+        selectedTenant.value = null;
+    });
+}
+function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false; }
 </script>
 
 <template>
   <div class="space-y-4">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-xl font-semibold">Hostel management</h2>
+      <div class="flex gap-2">
+        <router-link v-if="auth.canSee('finance')" class="btn-secondary" to="/finance?business=HOSTEL">View finances</router-link>
+        <button v-if="canManage" class="btn" :disabled="busy" @click="paymentTenant=''">Receive payment</button>
+      </div>
+    </header>
+    <p v-if="error" class="error" role="alert">
+      {{ error }}
+      <button class="underline" @click="run(() => hostel.hydrate())">
+        Retry
+      </button>
+    </p>
+    <p v-if="hostel.refreshError" class="error" role="alert">
+      {{ hostel.refreshError }}
+      <button class="underline" @click="run(() => hostel.hydrate())">
+        Refresh
+      </button>
+    </p>
+    <p v-if="busy" role="status" class="text-sm text-ink-muted">
+      Saving / loading…
+    </p>
     <div class="flex items-center justify-between gap-3 border-b border-line">
-      <div class="flex gap-1"><button v-for="item in ['rooms', 'tenants', 'payments'] as const" :key="item" type="button" class="border-b-2 px-4 py-2 text-sm font-medium capitalize" :class="tab === item ? 'border-primary text-primary-dark' : 'border-transparent text-ink-muted hover:text-ink'" @click="tab = item">{{ item }}</button></div>
-      <button v-if="canManage && tab === 'tenants'" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark" @click="addTenant">Add tenant</button>
+      <div class="flex flex-wrap gap-1">
+        <button v-for="item in (canManage ? ['rooms', 'tenants', 'payments', 'configuration'] : ['rooms', 'tenants', 'payments'])" :key="item" type="button" class="border-b-2 px-4 py-2 text-sm font-medium capitalize" :class="tab === item ? 'border-primary text-primary-dark' : 'border-transparent text-ink-muted hover:text-ink'" @click="tab = item">
+          {{ item }}
+        </button>
+      </div>
+      <button v-if="canManage && tab === 'tenants'" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark" @click="addTenant">
+        Add tenant
+      </button>
     </div>
-
     <div v-if="tab === 'rooms'" class="space-y-6">
-      <div v-for="[unit, roomsInUnit] in roomsByUnit" :key="unit"><h3 class="mb-2 text-sm font-medium text-ink-muted">{{ unit }}</h3><div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6"><div v-for="room in roomsInUnit" :key="room.id" role="button" tabindex="0" class="cursor-pointer rounded border border-line bg-surface p-3 transition hover:border-primary hover:shadow-sm" @click="openRoom(room)" @keydown.enter="openRoom(room)"><p class="font-medium">{{ room.label ?? room.identifier }}</p><p class="text-xs text-ink-muted">{{ room.type === 'DOUBLE' ? 'Double' : 'Single' }} · {{ room.occupants }}/{{ room.capacity }}</p><StatusPill class="mt-2" :tone="statusTone(room)" :label="hostel.roomStatus(room).charAt(0) + hostel.roomStatus(room).slice(1).toLowerCase()" /><form v-if="canManage" class="mt-3 flex gap-1" @submit.prevent.stop="saveRoomName(room.id, room.label)" @click.stop><input v-model="roomNames[room.id]" :placeholder="room.label ?? room.identifier" aria-label="Room display name" class="min-w-0 flex-1 rounded border border-line px-2 py-1 text-xs" /><button type="submit" class="rounded border border-line px-2 py-1 text-xs font-medium hover:border-primary hover:text-primary">Save</button></form></div></div></div>
+      <label class="field max-w-sm">Housing unit
+        <select v-model="unitFilter" class="input"><option value="">All units</option><option v-for="unit in hostel.units" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select>
+      </label>
+      <p v-if="!roomsByUnit.size" class="panel text-sm text-ink-muted">No rooms in this housing unit.</p>
+      <div v-for="[unit, roomsInUnit] in roomsByUnit" :key="unit">
+        <h3 class="mb-2 text-sm font-medium text-ink-muted">
+          {{ unit }}
+        </h3>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+          <div v-for="room in roomsInUnit" :key="room.id" role="button" tabindex="0" class="cursor-pointer rounded border border-line bg-surface p-3 transition hover:border-primary hover:shadow-sm" @click="openRoom(room)" @keydown.enter="openRoom(room)">
+            <p class="font-medium">
+              {{ room.label ?? room.identifier }}
+            </p>
+            <p class="text-xs text-ink-muted">
+              Capacity · {{ room.occupants }}/{{ room.capacity }}
+            </p>
+            <StatusPill class="mt-2" :tone="statusTone(room)" :label="hostel.roomStatus(room).charAt(0) + hostel.roomStatus(room).slice(1).toLowerCase()" />
+          </div>
+        </div>
+      </div>
     </div>
+    <div v-else-if="tab === 'tenants'" class="space-y-3">
+      <SearchInput v-model="search" placeholder="Search tenants by name or room…" />
+      <div class="overflow-x-auto rounded border border-line bg-surface">
+        <table class="w-full min-w-[640px] text-sm">
+          <thead class="border-b border-line bg-paper text-left text-ink-muted">
+            <tr>
+              <th class="px-4 py-2 font-medium">
+                Name
+              </th>
+              <th class="px-4 py-2 font-medium">
+                Room
+              </th>
+              <th class="px-4 py-2 font-medium">
+                Institution
+              </th>
+              <th class="px-4 py-2 font-medium">
+                Monthly
+              </th>
+              <th class="px-4 py-2 font-medium">
+                Agreement
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tenant in filteredTenants" :key="tenant.id" class="cursor-pointer border-b border-line last:border-0 hover:bg-paper" @click="viewTenant(tenant)">
+              <td class="px-4 py-2 font-medium">
+                {{ tenant.firstName }} {{ tenant.lastName }}
+              </td>
+              <td class="px-4 py-2 text-ink-muted">
+                {{ roomName(tenant.roomId) }}
+              </td>
+              <td class="px-4 py-2 text-ink-muted">
+                {{ tenant.institution }}
+              </td>
+              <td class="tabular px-4 py-2">
+                {{ formatMWK(tenant.monthlyAmount) }}
+              </td>
+              <td class="px-4 py-2">
+                <StatusPill :tone="tenant.agreementStatus === 'SIGNED' ? 'success' : tenant.agreementStatus === 'PENDING' ? 'pending' : 'danger'" :label="tenant.agreementStatus.charAt(0) + tenant.agreementStatus.slice(1).toLowerCase()" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <RentPayments v-else-if="tab === 'payments'" />
+    <RoomConfiguration v-else-if="tab === 'configuration' && canManage" />
 
-    <div v-else-if="tab === 'tenants'" class="space-y-3"><SearchInput v-model="search" placeholder="Search tenants by name or room…" /><div class="overflow-x-auto rounded border border-line bg-surface"><table class="w-full min-w-[640px] text-sm"><thead class="border-b border-line bg-paper text-left text-ink-muted"><tr><th class="px-4 py-2 font-medium">Name</th><th class="px-4 py-2 font-medium">Room</th><th class="px-4 py-2 font-medium">Institution</th><th class="px-4 py-2 font-medium">Monthly</th><th class="px-4 py-2 font-medium">Agreement</th></tr></thead><tbody><tr v-for="tenant in filteredTenants" :key="tenant.id" class="cursor-pointer border-b border-line last:border-0 hover:bg-paper" @click="viewTenant(tenant)"><td class="px-4 py-2 font-medium">{{ tenant.firstName }} {{ tenant.lastName }}</td><td class="px-4 py-2 text-ink-muted">{{ tenant.roomId }}</td><td class="px-4 py-2 text-ink-muted">{{ tenant.institution }}</td><td class="tabular px-4 py-2">{{ formatMWK(tenant.monthlyAmount) }}</td><td class="px-4 py-2"><StatusPill :tone="tenant.agreementStatus === 'SIGNED' ? 'success' : tenant.agreementStatus === 'PENDING' ? 'pending' : 'danger'" :label="tenant.agreementStatus.charAt(0) + tenant.agreementStatus.slice(1).toLowerCase()" /></td></tr></tbody></table></div></div>
-
-    <div v-else class="overflow-x-auto rounded border border-line bg-surface"><table class="w-full min-w-[720px] text-sm"><thead class="border-b border-line bg-paper text-left text-ink-muted"><tr><th class="px-4 py-2 font-medium">Tenant</th><th class="px-4 py-2 font-medium">Expected</th><th class="px-4 py-2 font-medium">Paid</th><th class="px-4 py-2 font-medium">Balance</th><th class="px-4 py-2 font-medium">Status</th><th class="px-4 py-2 font-medium">Record payment</th></tr></thead><tbody><tr v-for="tenant in hostel.tenants" :key="tenant.id" class="border-b border-line last:border-0"><td class="px-4 py-2 font-medium">{{ tenant.firstName }} {{ tenant.lastName }}</td><template v-if="hostel.paymentFor(tenant.id)"><td class="tabular px-4 py-2">{{ formatMWK(hostel.paymentFor(tenant.id)!.expectedAmount) }}</td><td class="tabular px-4 py-2">{{ formatMWK(hostel.paymentFor(tenant.id)!.amountPaid) }}</td><td class="tabular px-4 py-2">{{ formatMWK(hostel.paymentFor(tenant.id)!.expectedAmount - hostel.paymentFor(tenant.id)!.amountPaid) }}</td><td class="px-4 py-2"><StatusPill :tone="hostel.paymentFor(tenant.id)!.amountPaid >= hostel.paymentFor(tenant.id)!.expectedAmount ? 'success' : 'pending'" :label="hostel.paymentFor(tenant.id)!.amountPaid >= hostel.paymentFor(tenant.id)!.expectedAmount ? 'Paid' : 'Balance'" /></td><td class="px-4 py-2"><div class="flex items-center gap-2"><input v-model.number="payAmount[tenant.id]" type="number" placeholder="Amount" class="w-28 rounded border border-line px-2 py-1 text-sm" /><button type="button" class="rounded bg-primary px-3 py-1 text-sm font-medium text-white hover:bg-primary-dark" @click="pay(tenant.id, 'CASH')">Add</button></div></td></template></tr></tbody></table></div>
   </div>
-
-  <div v-if="selectedRoom || selectedTenant || editing" class="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" @click.self="closeModal"><section class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-surface shadow-xl"><div class="flex items-center justify-between border-b border-line px-5 py-4"><h2 class="text-lg font-semibold">{{ editing ? (selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label ?? selectedRoom.identifier) : 'Tenant profile' }}</h2><button type="button" class="text-2xl text-ink-muted hover:text-ink" aria-label="Close" @click="closeModal">×</button></div>
-    <div v-if="selectedRoom && !editing" class="space-y-3 p-5"><p class="text-sm text-ink-muted">{{ selectedRoom.housingUnit }} · {{ selectedRoom.occupants }}/{{ selectedRoom.capacity }} occupants</p><p v-if="roomOccupants.length === 0" class="rounded bg-paper p-4 text-sm text-ink-muted">This room is vacant.</p><button v-for="tenant in roomOccupants" :key="tenant.id" type="button" class="flex w-full items-center justify-between rounded border border-line p-4 text-left hover:border-primary" @click="viewTenant(tenant)"><span><span class="block font-medium">{{ tenant.firstName }} {{ tenant.lastName }}</span><span class="text-sm text-ink-muted">{{ tenant.institution || 'No institution recorded' }}</span></span><span class="text-sm text-primary">View profile →</span></button></div>
-    <div v-else-if="selectedTenant && !editing" class="p-5"><div class="mb-5 flex items-start justify-between gap-4"><div><p class="text-xl font-semibold">{{ selectedTenant.firstName }} {{ selectedTenant.middleName }} {{ selectedTenant.lastName }}</p><p class="text-sm text-ink-muted">{{ selectedTenant.roomId }} · {{ selectedTenant.institution || 'Institution not recorded' }}</p></div><div class="flex flex-wrap justify-end gap-2"><button type="button" class="rounded border border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-primary-light" @click="downloadAgreement(selectedTenant)">Download agreement</button><button v-if="canManage" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white" @click="editTenant">Edit tenant / move room</button></div></div><div class="grid gap-5 sm:grid-cols-2"><div><h3 class="mb-2 font-medium">Personal information</h3><dl class="space-y-1 text-sm"><div><dt>Phone</dt><dd class="text-ink-muted">{{ selectedTenant.phone }}</dd></div><div><dt>Email</dt><dd class="text-ink-muted">{{ selectedTenant.email || '—' }}</dd></div><div><dt>Gender / date of birth</dt><dd class="text-ink-muted">{{ selectedTenant.gender || '—' }} · {{ selectedTenant.dateOfBirth || '—' }}</dd></div><div><dt>Home address</dt><dd class="text-ink-muted">{{ selectedTenant.homeDistrict || '—' }} {{ selectedTenant.homeAddress || '' }}</dd></div><div><dt>Emergency contact</dt><dd class="text-ink-muted">{{ selectedTenant.emergencyContactName || '—' }} · {{ selectedTenant.emergencyContactPhone || '—' }}</dd></div></dl></div><div><h3 class="mb-2 font-medium">Academic & accommodation</h3><dl class="space-y-1 text-sm"><div><dt>Programme</dt><dd class="text-ink-muted">{{ selectedTenant.programme || '—' }}</dd></div><div><dt>Faculty / department</dt><dd class="text-ink-muted">{{ selectedTenant.faculty || '—' }} · {{ selectedTenant.department || '—' }}</dd></div><div><dt>Year / registration</dt><dd class="text-ink-muted">{{ selectedTenant.yearOfStudy || '—' }} · {{ selectedTenant.regNumber || '—' }}</dd></div><div><dt>Monthly amount / deposit</dt><dd class="text-ink-muted">{{ formatMWK(selectedTenant.monthlyAmount) }} · {{ formatMWK(selectedTenant.deposit || 0) }}</dd></div><div><dt>Move-in / agreement</dt><dd class="text-ink-muted">{{ selectedTenant.moveInDate }} · {{ selectedTenant.agreementStatus }}</dd></div></dl></div></div></div>
-    <form v-else-if="editing" class="space-y-6 p-5" @submit.prevent="saveTenant"><p v-if="savingError" class="rounded bg-danger-light p-3 text-sm text-danger">{{ savingError }}</p><fieldset><legend class="mb-3 font-semibold">Personal information</legend><div class="grid gap-3 sm:grid-cols-2"><input v-model="form.firstName" required placeholder="First name *" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.middleName" placeholder="Middle name" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.lastName" required placeholder="Last name *" class="rounded border border-line px-3 py-2 text-sm" /><select v-model="form.gender" class="rounded border border-line px-3 py-2 text-sm"><option value="">Gender</option><option>Female</option><option>Male</option><option>Other</option></select><input v-model="form.dateOfBirth" type="date" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.phone" required placeholder="Phone number *" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.altPhone" placeholder="Alternative phone" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.email" type="email" placeholder="Email" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.homeDistrict" placeholder="Home district" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.homeAddress" placeholder="Home address" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.emergencyContactName" placeholder="Emergency contact name" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.emergencyContactPhone" placeholder="Emergency contact phone" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.emergencyContactRelationship" placeholder="Emergency contact relationship" class="rounded border border-line px-3 py-2 text-sm sm:col-span-2" /></div></fieldset><fieldset><legend class="mb-3 font-semibold">Academic information</legend><div class="grid gap-3 sm:grid-cols-2"><input v-model="form.institution" placeholder="Institution" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.programme" placeholder="Programme" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.faculty" placeholder="Faculty / school" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.department" placeholder="Department" class="rounded border border-line px-3 py-2 text-sm" /><input v-model.number="form.yearOfStudy" min="1" type="number" placeholder="Year of study" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.regNumber" placeholder="Student / registration number" class="rounded border border-line px-3 py-2 text-sm" /><input v-model="form.academicYear" placeholder="Academic year" class="rounded border border-line px-3 py-2 text-sm" /></div></fieldset><fieldset><legend class="mb-3 font-semibold">Accommodation</legend><div class="grid gap-3 sm:grid-cols-2"><select v-model="form.roomId" required class="rounded border border-line px-3 py-2 text-sm"><option disabled value="">Select room *</option><option v-for="room in availableRooms" :key="room.id" :value="room.id">{{ room.label ?? room.identifier }} — {{ room.occupants }}/{{ room.capacity }}</option></select><input v-model="form.moveInDate" required type="date" class="rounded border border-line px-3 py-2 text-sm" /><input v-model.number="form.monthlyAmount" required min="1" type="number" placeholder="Monthly amount *" class="rounded border border-line px-3 py-2 text-sm" /><input v-model.number="form.deposit" min="0" type="number" placeholder="Deposit" class="rounded border border-line px-3 py-2 text-sm" /><select v-model="form.agreementStatus" class="rounded border border-line px-3 py-2 text-sm"><option value="PENDING">Agreement pending</option><option value="SIGNED">Agreement signed</option><option value="EXPIRED">Agreement expired</option></select></div></fieldset><div class="flex justify-end gap-3"><button type="button" class="rounded border border-line px-4 py-2 text-sm" @click="selectedTenant ? (editing = false) : closeModal()">Cancel</button><button type="submit" class="rounded bg-primary px-4 py-2 text-sm font-medium text-white">Save tenant</button></div></form>
-  </section></div>
+  <ReceivePaymentModal v-if="paymentTenant!==null" :tenant-id="paymentTenant" @close="paymentTenant=null" @saved="run(()=>hostel.hydrate())" />
+  <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
+      <div v-if="selectedRoom && !editing" class="space-y-3 p-5">
+        <p class="text-sm text-ink-muted">
+          {{ selectedRoom.housingUnit }} · {{ selectedRoom.occupants }}/{{ selectedRoom.capacity }} occupants
+        </p>
+        <p v-if="roomOccupants.length === 0" class="rounded bg-paper p-4 text-sm text-ink-muted">
+          This room is vacant.
+        </p>
+        <button v-for="tenant in roomOccupants" :key="tenant.id" type="button" class="flex w-full items-center justify-between rounded border border-line p-4 text-left hover:border-primary" @click="viewTenant(tenant)">
+          <span>
+            <span class="block font-medium">
+              {{ tenant.firstName }} {{ tenant.lastName }}
+            </span>
+            <span class="text-sm text-ink-muted">
+              {{ tenant.institution || 'No institution recorded' }}
+            </span>
+          </span>
+          <span class="text-sm text-primary">
+            View profile →
+          </span>
+        </button>
+      </div>
+      <div v-else-if="selectedTenant && !editing" class="p-5">
+        <div class="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xl font-semibold">
+              {{ selectedTenant.firstName }} {{ selectedTenant.middleName }} {{ selectedTenant.lastName }}
+            </p>
+            <p class="text-sm text-ink-muted">
+              {{ roomName(selectedTenant.roomId) }} · {{ selectedTenant.institution || 'Institution not recorded' }}
+            </p>
+          </div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="button" class="rounded border border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-primary-light" @click="downloadAgreement(selectedTenant, hostel.rooms)">
+              Download agreement
+            </button>
+            <button v-if="canManage" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white" @click="editTenant">
+              Edit tenant / move room
+            </button>
+            <button v-if="canManage" type="button" class="btn" :disabled="busy" @click="paymentTenant=selectedTenant.id; closeModal()">Receive payment</button>
+            <button v-if="canManage" type="button" class="btn-secondary" :disabled="busy" @click="checkout">
+              Check out
+            </button>
+          </div>
+        </div>
+        <div class="grid gap-5 sm:grid-cols-2">
+          <div>
+            <h3 class="mb-2 font-medium">
+              Personal information
+            </h3>
+            <dl class="space-y-1 text-sm">
+              <div>
+                <dt>
+                  Phone
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.phone }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Email
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.email || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Gender / date of birth
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.gender || '—' }} · {{ selectedTenant.dateOfBirth || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Home address
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.homeDistrict || '—' }} {{ selectedTenant.homeAddress || '' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Emergency contact
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.emergencyContactName || '—' }} · {{ selectedTenant.emergencyContactPhone || '—' }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <div>
+            <h3 class="mb-2 font-medium">
+              Academic & accommodation
+            </h3>
+            <dl class="space-y-1 text-sm">
+              <div>
+                <dt>
+                  Programme
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.programme || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Faculty / department
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.faculty || '—' }} · {{ selectedTenant.department || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Year / registration
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.yearOfStudy || '—' }} · {{ selectedTenant.regNumber || '—' }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Monthly amount / deposit
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ formatMWK(selectedTenant.monthlyAmount) }} · {{ formatMWK(selectedTenant.deposit || 0) }}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  Move-in / agreement
+                </dt>
+                <dd class="text-ink-muted">
+                  {{ selectedTenant.moveInDate }} · {{ selectedTenant.agreementStatus }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <form v-else-if="editing" class="space-y-6 p-5" @submit.prevent="saveTenant">
+        <p v-if="savingError" class="rounded bg-danger-light p-3 text-sm text-danger">
+          {{ savingError }}
+        </p>
+        <fieldset :disabled="busy">
+          <legend class="mb-3 font-semibold">
+            Personal information
+          </legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <input v-model="form.firstName" required placeholder="First name *" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.middleName" placeholder="Middle name" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.lastName" required placeholder="Last name *" class="rounded border border-line px-3 py-2 text-sm" />
+            <select v-model="form.gender" class="rounded border border-line px-3 py-2 text-sm">
+              <option value="">
+                Gender
+              </option>
+              <option>
+                Female
+              </option>
+              <option>
+                Male
+              </option>
+              <option>
+                Other
+              </option>
+            </select>
+            <input v-model="form.dateOfBirth" type="date" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.phone" required placeholder="Phone number *" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.altPhone" placeholder="Alternative phone" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.email" type="email" placeholder="Email" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.homeDistrict" placeholder="Home district" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.homeAddress" placeholder="Home address" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.emergencyContactName" placeholder="Emergency contact name" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.emergencyContactPhone" placeholder="Emergency contact phone" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.emergencyContactRelationship" placeholder="Emergency contact relationship" class="rounded border border-line px-3 py-2 text-sm sm:col-span-2" />
+          </div>
+        </fieldset>
+        <fieldset :disabled="busy">
+          <legend class="mb-3 font-semibold">
+            Academic information
+          </legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <input v-model="form.institution" placeholder="Institution" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.programme" placeholder="Programme" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.faculty" placeholder="Faculty / school" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.department" placeholder="Department" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model.number="form.yearOfStudy" min="1" type="number" placeholder="Year of study" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.regNumber" placeholder="Student / registration number" class="rounded border border-line px-3 py-2 text-sm" />
+            <input v-model="form.academicYear" placeholder="Academic year" class="rounded border border-line px-3 py-2 text-sm" />
+          </div>
+        </fieldset>
+        <fieldset :disabled="busy">
+          <legend class="mb-3 font-semibold">
+            Accommodation
+          </legend>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <select v-model="form.roomId" required class="rounded border border-line px-3 py-2 text-sm">
+              <option disabled value="">
+                Select room *
+              </option>
+              <option v-for="room in availableRooms" :key="room.id" :value="room.id">
+                {{ room.label ?? room.identifier }} — {{ room.occupants }}/{{ room.capacity }}
+              </option>
+            </select>
+            <input v-model="form.moveInDate" :disabled="!!selectedTenant" :max="today()" required type="date" class="rounded border border-line px-3 py-2 text-sm" />
+            <p class="input">
+              Monthly rent: {{ formatMWK(form.monthlyAmount) }} · set in Configuration
+            </p>
+            <input v-model.number="form.deposit" min="0" type="number" placeholder="Deposit" class="rounded border border-line px-3 py-2 text-sm" />
+            <select v-model="form.agreementStatus" class="rounded border border-line px-3 py-2 text-sm">
+              <option value="PENDING">
+                Agreement pending
+              </option>
+              <option value="SIGNED">
+                Agreement signed
+              </option>
+              <option value="EXPIRED">
+                Agreement expired
+              </option>
+            </select>
+          </div>
+        </fieldset>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="rounded border border-line px-4 py-2 text-sm" :disabled="busy" @click="selectedTenant ? (editing = false) : closeModal()">
+            Cancel
+          </button>
+          <button type="submit" class="rounded bg-primary px-4 py-2 text-sm font-medium text-white" :disabled="busy">
+            Save tenant
+          </button>
+        </div>
+      </form>
+  </FormModal>
 </template>

@@ -1,13 +1,11 @@
-import { Pool } from 'pg'
-import dotenv from 'dotenv'
-
-dotenv.config()
-
+import { Pool, types } from 'pg';
+import dotenv from 'dotenv';
+dotenv.config();
+types.setTypeParser(1082, value => value);
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-})
-
+    connectionString: process.env.DATABASE_URL,
+});
 pool.on('error', (err) => {
-  // Idle client errors shouldn't crash the whole process.
-  console.error('Unexpected error on idle Postgres client', err)
-})
+    // Idle client errors shouldn't crash the whole process.
+    console.error('Unexpected error on idle Postgres client', err);
+});

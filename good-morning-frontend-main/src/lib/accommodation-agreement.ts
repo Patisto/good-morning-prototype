@@ -1,0 +1,13 @@
+import { formatMWK, type Tenant, type Room } from '@/types';
+export function downloadAgreement(tenant: Tenant, rooms: Room[]) {
+    const room = rooms.find((entry) => entry.id === tenant.roomId);
+    const fullName = [tenant.firstName, tenant.middleName, tenant.lastName].filter(Boolean).join(' ');
+    const escape = (value: string | number | undefined) => String(value ?? '—').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Accommodation Agreement — ${escape(fullName)}</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;color:#1b211c;line-height:1.55}h1{text-align:center;color:#1f5b4c}h2{font-size:16px;margin-top:28px}table{width:100%;border-collapse:collapse}td{border:1px solid #dcded6;padding:9px}td:first-child{font-weight:bold;width:38%}.signature{margin-top:80px;display:flex;justify-content:space-between;gap:30px}.signature div{border-top:1px solid #1b211c;padding-top:6px;min-width:200px}</style></head><body><h1>Good Morning Accommodation Agreement</h1><p>This agreement confirms the accommodation arrangement between Good Morning and the tenant named below.</p><table><tr><td>Tenant name</td><td>${escape(fullName)}</td></tr><tr><td>Phone</td><td>${escape(tenant.phone)}</td></tr><tr><td>Institution / programme</td><td>${escape(tenant.institution)} / ${escape(tenant.programme)}</td></tr><tr><td>Housing unit</td><td>${escape(room?.housingUnit)}</td></tr><tr><td>Room</td><td>${escape(room?.label ?? room?.identifier ?? tenant.roomId)}</td></tr><tr><td>Move-in date</td><td>${escape(tenant.moveInDate)}</td></tr><tr><td>Monthly accommodation amount</td><td>${escape(formatMWK(tenant.monthlyAmount))}</td></tr><tr><td>Deposit</td><td>${escape(formatMWK(tenant.deposit ?? 0))}</td></tr></table><h2>Terms</h2><ol><li>The tenant agrees to pay the accommodation amount as agreed and keep the assigned room and shared areas clean.</li><li>The room may not be transferred, sublet, or occupied beyond its approved capacity without written approval.</li><li>Good Morning may enforce reasonable hostel rules to protect residents, property, and safety.</li><li>This agreement remains subject to the applicable Good Morning accommodation policies.</li></ol><p>I have read and agree to these terms.</p><div class="signature"><div>Tenant signature and date</div><div>Good Morning representative</div></div></body></html>`;
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `good-morning-agreement-${tenant.roomId}-${tenant.lastName}.html`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
