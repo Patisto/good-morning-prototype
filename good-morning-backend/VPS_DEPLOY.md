@@ -48,7 +48,7 @@ sudo chown -R "$USER":"$USER" /srv/good-morning
 chmod 750 /srv/good-morning /srv/good-morning/releases /srv/good-morning/shared
 ```
 
-PM2 must be installed for that same SSH account. Configure it to start after reboot once:
+The deployment workflow extracts releases and runs PM2 as that SSH account, not as root. PM2 must be installed for that same account. Configure it to start after reboot once:
 
 ```bash
 pm2 startup systemd
