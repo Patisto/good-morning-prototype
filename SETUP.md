@@ -85,3 +85,8 @@ Useful scenarios to cover: migration on existing data and a second migration run
 Run `npm run migrate` in the backend again before using this update. The migration adds `housing_units`, imports existing room unit names, and links every room using `housing_unit_id`. Source changes in this follow-up have not been built or tested, per your testing preference.
 
 Suggested manual scenarios: rename a unit and verify its rooms still belong to it; filter one unit and All units; cancel each edit modal; receive a partial payment for a tenant with no generated charge; retry a payment after a lost response; check that the receipt appears as Finance income on the payment date; verify department managers cannot access another department's Finance data; create a staff account and confirm the notification appears.
+
+
+## VPS deployment
+
+For GitHub Actions deployment to an AWS VPS, local PostgreSQL provisioning, PM2 startup, server credential files, Nginx routing, and GitHub repository secrets/variables, follow [good-morning-backend/VPS_DEPLOY.md](good-morning-backend/VPS_DEPLOY.md).

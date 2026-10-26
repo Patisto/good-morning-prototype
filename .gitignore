@@ -1,1 +1,6 @@
 node_modules
+
+# Credentials for local development and VPS deployment
+.env
+.env.*
+!.env.example
