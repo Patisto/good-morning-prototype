@@ -6,8 +6,8 @@ const migrationConnection = process.env.MIGRATION_DATABASE_URL ?? process.env.DA
 if (!migrationConnection) throw new Error('MIGRATION_DATABASE_URL is required to create the application database.');
 
 /** Create good_morning on first deployment, then set safe runtime defaults. */
-async function provision() {
-    const adminUrl = new URL(migrationConnection);
+async function provision(connectionString: string) {
+    const adminUrl = new URL(connectionString);
     adminUrl.pathname = '/postgres';
     const admin = new Client({ connectionString: adminUrl.toString() });
     await admin.connect();
@@ -20,7 +20,7 @@ async function provision() {
         } else console.log('Database good_morning already exists; preserving its data.');
     } finally { await admin.end(); }
 
-    const db = new Client({ connectionString: migrationConnection });
+    const db = new Client({ connectionString });
     await db.connect();
     try {
         await db.query('GRANT CONNECT ON DATABASE good_morning TO good_morning_app');
@@ -34,4 +34,4 @@ async function provision() {
     } finally { await db.end(); }
 }
 
-provision().catch(error => { console.error('Database provisioning failed:', error); process.exitCode = 1; });
+provision(migrationConnection).catch(error => { console.error('Database provisioning failed:', error); process.exitCode = 1; });
