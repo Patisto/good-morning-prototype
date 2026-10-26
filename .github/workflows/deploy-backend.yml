@@ -56,7 +56,7 @@ jobs:
 
       - name: Configure SSH
         env:
-          VPS_SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+          VPS_SSH_KEY_B64: ${{ vars.VPS_SSH_KEY_B64 }}
           VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
         run: |
           set -eu
@@ -64,11 +64,11 @@ jobs:
           install -m 700 -d "$HOME/.ssh"
 
           test -n "$VPS_SSH_KEY_B64" || {
-            echo "ERROR: Missing Actions secret VPS_SSH_KEY_B64"
+            echo "ERROR: Missing Actions variable VPS_SSH_KEY_B64"
             exit 1
           }
 
-          # Decode the Base64 private key.
+          # Decode the Base64-encoded private key.
           if ! printf '%s' "$VPS_SSH_KEY_B64" \
             | base64 --decode > "$HOME/.ssh/id_ed25519"; then
             echo "ERROR: VPS_SSH_KEY_B64 is not valid Base64"
@@ -77,7 +77,7 @@ jobs:
 
           chmod 600 "$HOME/.ssh/id_ed25519"
 
-          # Validate the private key and ensure it is unencrypted.
+          # Validate the decoded private key.
           if ! ssh-keygen -y -P '' \
             -f "$HOME/.ssh/id_ed25519" > /dev/null; then
             echo "ERROR: Decoded SSH private key is invalid or encrypted"
@@ -89,7 +89,6 @@ jobs:
             exit 1
           }
 
-          # Use the independently verified AWS host key.
           printf '%s\n' "$VPS_KNOWN_HOSTS" \
             > "$HOME/.ssh/known_hosts"
 
@@ -99,7 +98,7 @@ jobs:
         env:
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
-          VPS_SSH_PORT: ${{ vars.VPS_PORT }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
         run: |
           set -eu
 
@@ -113,11 +112,11 @@ jobs:
             exit 1
           }
 
-          VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+          VPS_PORT="${VPS_PORT:-22}"
 
           ssh \
             -i "$HOME/.ssh/id_ed25519" \
-            -p "$VPS_SSH_PORT" \
+            -p "$VPS_PORT" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
@@ -129,34 +128,53 @@ jobs:
         env:
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
-          VPS_SSH_PORT: ${{ vars.VPS_PORT }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
         run: |
           set -eu
 
-          VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+          VPS_PORT="${VPS_PORT:-22}"
           RELEASE="/srv/good-morning/releases/${GITHUB_SHA}"
           ARCHIVE="/tmp/good-morning-${GITHUB_SHA}.tar.gz"
 
-          SSH_OPTS="-i $HOME/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          test -n "$VPS_HOST" || {
+            echo "ERROR: Missing Actions variable VPS_HOST"
+            exit 1
+          }
 
+          test -n "$VPS_USER" || {
+            echo "ERROR: Missing Actions variable VPS_USER"
+            exit 1
+          }
+
+          # Upload the release archive.
           scp \
             -i "$HOME/.ssh/id_ed25519" \
-            -P "$VPS_SSH_PORT" \
+            -P "$VPS_PORT" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             good-morning-api.tar.gz \
             "$VPS_USER@$VPS_HOST:$ARCHIVE"
 
+          # Prepare the release directory.
           ssh \
             -i "$HOME/.ssh/id_ed25519" \
-            -p "$VPS_SSH_PORT" \
+            -p "$VPS_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "sudo mkdir -p '$RELEASE'"
+
+          # Extract and execute the deployment script.
+          ssh \
+            -i "$HOME/.ssh/id_ed25519" \
+            -p "$VPS_PORT" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
             "set -eu
-             sudo mkdir -p '$RELEASE'
              sudo tar -xzf '$ARCHIVE' -C '$RELEASE'
              rm -f '$ARCHIVE'
              sudo node '$RELEASE/ops/deploy.cjs' '$RELEASE'"
