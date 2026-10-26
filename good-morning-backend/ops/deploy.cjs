@@ -4,7 +4,12 @@ const { spawnSync } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const release = path.resolve(process.argv[2] || __dirname, '..');
-const shared = path.resolve(release, '..', '..', 'shared');
+const sharedCandidates = [
+  path.resolve(release, '..', '..', 'shared'),
+  '/srv/good-morning/shared',
+  '/srv/shared',
+];
+const shared = sharedCandidates.find((directory) => fs.existsSync(path.join(directory, 'app.env'))) || sharedCandidates[0];
 const appFile = path.join(shared, 'app.env');
 const deployFile = path.join(shared, 'deploy.env');
 
