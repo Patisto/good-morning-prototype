@@ -100,9 +100,9 @@ Add these Actions variables:
 - `VPS_SSH_PORT`: SSH port; optional when it is `22`. Do not set this to the API port (`3000` is commonly used by the app, not SSH).
 - `VPS_KNOWN_HOSTS`: the verified SSH host key line for this host.
 
-Add this Actions secret:
+Add the private deployment key as an Actions variable or secret:
 
-- `VPS_SSH_KEY`: the unencrypted OpenSSH private deployment key paired with the public key installed on the VPS. Add the raw multiline key as the secret. The workflow also accepts a one-line base64-encoded key and the legacy secret name `VPS_SSH_KEY_B64`.
+- `VPS_SSH_KEY`: the unencrypted OpenSSH private deployment key paired with the public key installed on the VPS. The workflow accepts the raw multiline key or a one-line base64-encoded key. It checks variables `VPS_SSH_KEY_B64` and `VPS_SSH_KEY` first, then secrets with those names.
 
 Get the host key line from a trusted connection, or inspect `ssh-keyscan -H -p 22 YOUR_VPS_HOST` and compare its fingerprint with the server before saving it. Never disable host-key checking in the workflow.
 
