@@ -3,7 +3,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const dotenv = require('dotenv');
 
-const release = path.resolve(process.argv[2] || __dirname, '..');
+const release = path.resolve(process.argv[2] || path.resolve(__dirname, '..'));
 const sharedCandidates = [
   path.resolve(release, '..', '..', 'shared'),
   '/srv/good-morning/shared',
