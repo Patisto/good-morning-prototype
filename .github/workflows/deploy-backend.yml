@@ -57,10 +57,10 @@ jobs:
         env:
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
-          VPS_PORT: ${{ vars.VPS_PORT }}
+          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT }}
         run: |
           test -n "$VPS_HOST" && test -n "$VPS_USER"
-          VPS_PORT="${VPS_PORT:-22}"
-          scp -P "$VPS_PORT" good-morning-api.tar.gz "$VPS_USER@$VPS_HOST:/tmp/good-morning-${GITHUB_SHA}.tar.gz"
-          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p /srv/good-morning/releases/${GITHUB_SHA}"
-          ssh -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "tar -xzf /tmp/good-morning-${GITHUB_SHA}.tar.gz -C /srv/good-morning/releases/${GITHUB_SHA} && rm /tmp/good-morning-${GITHUB_SHA}.tar.gz && node /srv/good-morning/releases/${GITHUB_SHA}/ops/deploy.cjs /srv/good-morning/releases/${GITHUB_SHA}"
+          VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+          scp -P "$VPS_SSH_PORT" good-morning-api.tar.gz "$VPS_USER@$VPS_HOST:/tmp/good-morning-${GITHUB_SHA}.tar.gz"
+          ssh -p "$VPS_SSH_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p /srv/good-morning/releases/${GITHUB_SHA}"
+          ssh -p "$VPS_SSH_PORT" "$VPS_USER@$VPS_HOST" "tar -xzf /tmp/good-morning-${GITHUB_SHA}.tar.gz -C /srv/good-morning/releases/${GITHUB_SHA} && rm /tmp/good-morning-${GITHUB_SHA}.tar.gz && node /srv/good-morning/releases/${GITHUB_SHA}/ops/deploy.cjs /srv/good-morning/releases/${GITHUB_SHA}"

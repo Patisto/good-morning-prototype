@@ -97,7 +97,7 @@ Add these Actions variables:
 
 - `VPS_HOST`: the VPS static IPv4 address or DNS name.
 - `VPS_USER`: the Linux account prepared in step 3, for example `ubuntu`.
-- `VPS_PORT`: SSH port; optional when it is `22`.
+- `VPS_SSH_PORT`: SSH port; optional when it is `22`. Do not set this to the API port (`3000` is commonly used by the app, not SSH).
 - `VPS_KNOWN_HOSTS`: the verified SSH host key line for this host.
 
 Add this Actions secret:
