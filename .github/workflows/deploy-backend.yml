@@ -49,9 +49,21 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s' "$VPS_SSH_KEY_B64" | base64 --decode > ~/.ssh/id_ed25519
+          test -n "$VPS_SSH_KEY_B64" || { echo 'Missing Actions secret VPS_SSH_KEY_B64'; exit 1; }
+
+          # Accept either the documented one-line base64 value or a raw
+          # multiline OpenSSH private key to avoid corrupting raw secrets.
+          if printf '%s' "$VPS_SSH_KEY_B64" | base64 --decode > ~/.ssh/id_ed25519 2>/dev/null \
+            && ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+            :
+          else
+            printf '%s\n' "$VPS_SSH_KEY_B64" | tr -d '\r' > ~/.ssh/id_ed25519
+          fi
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
+          ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null 2>&1 || {
+            echo 'VPS_SSH_KEY_B64 must contain a valid, unencrypted OpenSSH private key, either raw or base64-encoded.'
+            exit 1
+          }
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
       - name: Copy release to VPS

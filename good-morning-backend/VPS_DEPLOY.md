@@ -102,7 +102,7 @@ Add these Actions variables:
 
 Add this Actions secret:
 
-- `VPS_SSH_KEY_B64`: the private SSH key paired with the public key installed on the VPS, base64-encoded as one line. On Linux, create the value with `base64 -w 0 ~/.ssh/your-vps-key`; on macOS, use `base64 < ~/.ssh/your-vps-key | tr -d '\n'`. Paste the output into the secret, not the raw key.
+- `VPS_SSH_KEY_B64`: the unencrypted OpenSSH private key paired with the public key installed on the VPS. The workflow accepts either the raw multiline key or a base64-encoded one-line key. To encode it, on Linux run `base64 -w 0 ~/.ssh/your-vps-key`; on macOS run `base64 < ~/.ssh/your-vps-key | tr -d '\n'`.
 
 Get the host key line from a trusted connection, or inspect `ssh-keyscan -H -p 22 YOUR_VPS_HOST` and compare its fingerprint with the server before saving it. Never disable host-key checking in the workflow.
 
