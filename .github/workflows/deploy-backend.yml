@@ -1,3 +1,4 @@
+
 name: Build and deploy backend
 
 on:
@@ -18,61 +19,144 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-24.04
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: good-morning-backend/package-lock.json
+
       - name: Install and build on GitHub
         working-directory: good-morning-backend
         run: |
           npm ci
           npm run build
           npm prune --omit=dev
+
       - name: Package compiled API and production dependencies
         run: |
+          set -eu
+
           mkdir -p release
           cp -a good-morning-backend/dist release/
-          cp good-morning-backend/package.json good-morning-backend/package-lock.json release/
+          cp good-morning-backend/package.json release/
+          cp good-morning-backend/package-lock.json release/
           cp -a good-morning-backend/node_modules release/
           cp good-morning-backend/ecosystem.config.cjs release/
+
           mkdir -p release/ops
           cp good-morning-backend/ops/deploy.cjs release/ops/
+
           tar -czf good-morning-api.tar.gz -C release .
+
       - name: Configure SSH
         env:
-          VPS_SSH_KEY: ${{ vars.VPS_SSH_KEY_B64 || vars.VPS_SSH_KEY || secrets.VPS_SSH_KEY_B64 || secrets.VPS_SSH_KEY }}
-          SSH_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+          VPS_SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
         run: |
-          install -m 700 -d ~/.ssh
-          test -n "$VPS_SSH_KEY" || { echo 'Add the private deployment key as the Actions variable VPS_SSH_KEY'; exit 1; }
+          set -eu
 
-          # Accept a base64-encoded key or a raw multiline OpenSSH key.
-          if printf '%s' "$VPS_SSH_KEY" | base64 --decode > ~/.ssh/id_ed25519 2>/dev/null \
-            && ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
-            :
-          else
-            printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-          fi
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -P '' -f ~/.ssh/id_ed25519 >/dev/null 2>&1 || {
-            echo 'VPS_SSH_KEY must contain a valid, unencrypted OpenSSH private key, either raw or base64-encoded.'
+          install -m 700 -d "$HOME/.ssh"
+
+          test -n "$VPS_SSH_KEY_B64" || {
+            echo "ERROR: Missing Actions secret VPS_SSH_KEY_B64"
             exit 1
           }
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+
+          # Decode the Base64 private key.
+          if ! printf '%s' "$VPS_SSH_KEY_B64" \
+            | base64 --decode > "$HOME/.ssh/id_ed25519"; then
+            echo "ERROR: VPS_SSH_KEY_B64 is not valid Base64"
+            exit 1
+          fi
+
+          chmod 600 "$HOME/.ssh/id_ed25519"
+
+          # Validate the private key and ensure it is unencrypted.
+          if ! ssh-keygen -y -P '' \
+            -f "$HOME/.ssh/id_ed25519" > /dev/null; then
+            echo "ERROR: Decoded SSH private key is invalid or encrypted"
+            exit 1
+          fi
+
+          test -n "$VPS_KNOWN_HOSTS" || {
+            echo "ERROR: Missing Actions variable VPS_KNOWN_HOSTS"
+            exit 1
+          }
+
+          # Use the independently verified AWS host key.
+          printf '%s\n' "$VPS_KNOWN_HOSTS" \
+            > "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Test SSH connection
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_SSH_PORT: ${{ vars.VPS_PORT }}
+        run: |
+          set -eu
+
+          test -n "$VPS_HOST" || {
+            echo "ERROR: Missing Actions variable VPS_HOST"
+            exit 1
+          }
+
+          test -n "$VPS_USER" || {
+            echo "ERROR: Missing Actions variable VPS_USER"
+            exit 1
+          }
+
+          VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
+
+          ssh \
+            -i "$HOME/.ssh/id_ed25519" \
+            -p "$VPS_SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$VPS_USER@$VPS_HOST" \
+            'echo "SSH authentication successful"'
+
       - name: Copy release to VPS
         env:
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
-          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT }}
+          VPS_SSH_PORT: ${{ vars.VPS_PORT }}
         run: |
-          test -n "$VPS_HOST" && test -n "$VPS_USER"
+          set -eu
+
           VPS_SSH_PORT="${VPS_SSH_PORT:-22}"
-          scp -P "$VPS_SSH_PORT" good-morning-api.tar.gz "$VPS_USER@$VPS_HOST:/tmp/good-morning-${GITHUB_SHA}.tar.gz"
-          ssh -p "$VPS_SSH_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p /srv/good-morning/releases/${GITHUB_SHA}"
-          ssh -p "$VPS_SSH_PORT" "$VPS_USER@$VPS_HOST" "tar -xzf /tmp/good-morning-${GITHUB_SHA}.tar.gz -C /srv/good-morning/releases/${GITHUB_SHA} && rm /tmp/good-morning-${GITHUB_SHA}.tar.gz && node /srv/good-morning/releases/${GITHUB_SHA}/ops/deploy.cjs /srv/good-morning/releases/${GITHUB_SHA}"
+          RELEASE="/srv/good-morning/releases/${GITHUB_SHA}"
+          ARCHIVE="/tmp/good-morning-${GITHUB_SHA}.tar.gz"
+
+          SSH_OPTS="-i $HOME/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+          scp \
+            -i "$HOME/.ssh/id_ed25519" \
+            -P "$VPS_SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            good-morning-api.tar.gz \
+            "$VPS_USER@$VPS_HOST:$ARCHIVE"
+
+          ssh \
+            -i "$HOME/.ssh/id_ed25519" \
+            -p "$VPS_SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "set -eu
+             sudo mkdir -p '$RELEASE'
+             sudo tar -xzf '$ARCHIVE' -C '$RELEASE'
+             rm -f '$ARCHIVE'
+             sudo node '$RELEASE/ops/deploy.cjs' '$RELEASE'"
