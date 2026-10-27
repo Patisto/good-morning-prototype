@@ -39,6 +39,6 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 const port = Number(process.env.PORT ?? 4000);
 // Cloud web hosts route traffic to the port they provide at runtime.
-app.listen(port, '127.0.0.1', () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`Good Morning API listening on port ${port}`);
 });

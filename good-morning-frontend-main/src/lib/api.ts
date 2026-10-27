@@ -1,5 +1,6 @@
 import { useNotificationsStore } from '@/stores/notifications';
-const BASE_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api').replace(/\/+$/, '');
+const rawBase = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api').replace(/\/+$/, '');
+const BASE_URL = rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`;
 export class ApiError extends Error {
     status: number;
     constructor(message: string, status: number) {
