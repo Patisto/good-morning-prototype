@@ -29,6 +29,18 @@ function runPm2(env) {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`PM2 exited with status ${result.status}`);
 }
+function verifyRoutes(port) {
+  const base = `http://127.0.0.1:${port}`;
+  let healthy = false;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/health`], { encoding: 'utf8' });
+    if (response.status === 0 && response.stdout === '200') { healthy = true; break; }
+    spawnSync('sleep', ['1']);
+  }
+  if (!healthy) throw new Error('The deployed API did not become healthy within 30 seconds.');
+  const route = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/applications`], { encoding: 'utf8' });
+  if (route.status !== 0 || route.stdout !== '401') throw new Error(`The student applications route check returned HTTP ${route.stdout || 'no response'}; expected 401 from the auth guard.`);
+}
 
 try {
   const appEnv = readEnv(appFile);
@@ -46,6 +58,7 @@ try {
   fs.symlinkSync(appFile, envLink);
   const runtimeEnv = { ...appEnv, NODE_ENV: 'production', PORT: appEnv.PORT || '4000' };
   runPm2(runtimeEnv);
+  verifyRoutes(runtimeEnv.PORT);
   const saved = spawnSync('pm2', ['save'], { env: { ...process.env, ...runtimeEnv }, stdio: 'inherit' });
   if (saved.error) throw saved.error;
   if (saved.status !== 0) throw new Error('pm2 save failed.');
