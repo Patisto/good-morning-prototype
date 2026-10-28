@@ -65,7 +65,7 @@ DATABASE_URL=postgres://good_morning_app:APP_PASSWORD@127.0.0.1:5432/good_mornin
 JWT_SECRET=PASTE_A_LONG_RANDOM_SECRET
 JWT_EXPIRES_IN=12h
 PORT=4000
-FRONTEND_URL=https://YOUR_FRONTEND_HOSTNAME
+FRONTEND_URL=https://www.goodmorningmw.online,https://goodmorningmw.online
 ```
 
 Create `/srv/good-morning/shared/deploy.env`:
@@ -87,7 +87,7 @@ nano /srv/good-morning/shared/deploy.env
 chmod 600 /srv/good-morning/shared/app.env /srv/good-morning/shared/deploy.env
 ```
 
-Generate a JWT secret on the VPS with `openssl rand -hex 32`. Keep the frontend origin exact, including `https://` and any non-default port. The app and deployment connection URLs should use the role passwords from step 2.
+Generate a JWT secret on the VPS with `openssl rand -hex 32`. `FRONTEND_URL` accepts a comma-separated list of exact browser origins; include both the `www` and apex domains if users may open either. Keep each origin exact, including `https://` and any non-default port. The app and deployment connection URLs should use the role passwords from step 2.
 
 ## 5. Configure GitHub Actions access
 
