@@ -5,8 +5,34 @@ import { pool } from '../db/pool';
 import { requireAuth, requireSection, requireManager } from '../middleware/auth';
 import { claimRequest, check, date, method, month, number, route, text, today, transaction } from '../utils/http';
 const router = Router();
+router.get('/registration/options', route(async (_req, res) => {
+    const [rooms, settings] = await Promise.all([
+        pool.query(`SELECT r.id,r.label,r.identifier,u.name AS housing_unit,r.capacity,
+          (SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants
+          FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`),
+        pool.query('SELECT name FROM housing_units ORDER BY name'),
+    ]);
+    res.json({ rooms: rooms.rows, units: settings.rows });
+}));
+router.post('/registration', route(async (req, res) => {
+    const b = req.body;
+    const first = text(b.firstName, 'First name'), last = text(b.lastName, 'Last name'), phone = text(b.phone, 'Phone');
+    check(typeof b.studentSignature === 'string' && /^data:image\/(png|jpeg);base64,/.test(b.studentSignature) && b.studentSignature.length < 700000, 'Please provide a valid online signature.');
+    const roomId = typeof b.preferredRoomId === 'string' && b.preferredRoomId ? b.preferredRoomId : null;
+    if (roomId) {
+        const room = await pool.query(`SELECT r.capacity,(SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants FROM rooms r WHERE r.id=$1 AND r.archived_at IS NULL`, [roomId]);
+        check(room.rowCount, 'Selected room is unavailable.');
+    }
+    const result = await pool.query(`INSERT INTO student_applications(first_name,middle_name,last_name,phone,email,institution,programme,faculty,department,year_of_study,reg_number,academic_year,preferred_room_id,student_signature)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, [first, b.middleName || null, last, phone, b.email || null, b.institution || null, b.programme || null, b.faculty || null, b.department || null, b.yearOfStudy || null, b.regNumber || null, b.academicYear || null, roomId, b.studentSignature]);
+    res.json({ id: result.rows[0].id });
+}));
 router.use(requireAuth, requireSection('hostel'));
 const manage = requireManager('hostel');
+router.get('/applications', manage, route(async (_req, res) => {
+    const result = await pool.query(`SELECT a.*,r.label AS room_label,r.identifier AS room_identifier,u.name AS housing_unit FROM student_applications a LEFT JOIN rooms r ON r.id=a.preferred_room_id LEFT JOIN housing_units u ON u.id=r.housing_unit_id ORDER BY a.submitted_at DESC`);
+    res.json({ applications: result.rows });
+}));
 router.get('/', route(async (req, res) => {
     const period = month(req.query.month);
     const [rooms, tenants, charges, settings, units] = await Promise.all([

@@ -2,10 +2,8 @@
 import { useRoute } from 'vue-router';
 import { computed, ref, watch } from 'vue';
 import SidebarNav from './SidebarNav.vue';
-import SyncStatusBadge from './SyncStatusBadge.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
-import LegacyRecordsNotice from '@/components/management/LegacyRecordsNotice.vue';
 import logo from '@/goodmorniglogo.png';
 const route = useRoute();
 const router = useRouter();
@@ -41,7 +39,6 @@ function logout() {
           <h1 class="truncate text-lg font-semibold capitalize sm:text-xl">{{ title }}</h1>
         </div>
         <div class="flex items-center gap-2">
-          <SyncStatusBadge />
           <button
             type="button"
             class="rounded border border-line px-3 py-1.5 text-sm font-medium text-ink-muted hover:border-danger hover:text-danger"
@@ -52,7 +49,6 @@ function logout() {
         </div>
       </header>
       <main class="flex-1 overflow-y-auto p-4 sm:p-6">
-        <LegacyRecordsNotice v-if="auth.canManageUsers" />
         <slot />
       </main>
     </div>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { useTrading } from '@/composables/useTrading';
 import { useAuthStore } from '@/stores/auth';
-import { businessName, formatMWK, paymentMethods, today, type Product, type PaymentMethod } from '@/types';
+import { businessName, formatMWK, paymentMethods, today, type Product, type PaymentMethod, type Sale } from '@/types';
 import ProductEditorModal from './ProductEditorModal.vue';
+import { api } from '@/lib/api';
 const props = defineProps<{
     section: 'restaurant' | 'grocery';
 }>();
@@ -17,12 +18,15 @@ const cart = ref<{
 const productEditorOpen = ref(false);
 const editedProduct = ref<Product | undefined>();
 const stock = ref({ productId: '', quantity: 0, notes: '' });
+const calculator = ref({ paid: 0, amount: 0 });
+const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - Number(calculator.value.amount || 0)));
 const filtered = computed(() => products.value.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(search.value.toLowerCase())));
 const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
 const tabs = computed(() => canManage.value ? ['sales', 'stock', 'configuration'] : ['sales', 'stock']);
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; });
+watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); await promptNewStock(); } });
 function add(product: Product) {
     const line = cart.value.find(l => l.itemId === product.id);
     if (line) {
@@ -34,10 +38,27 @@ function add(product: Product) {
 }
 async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value); cart.value = []; await load(); }); }
 async function receive() { await run(async () => { await save('/stock', { ...stock.value, date: date.value }); stock.value.quantity = 0; stock.value.notes = ''; await load(); }); }
+async function promptNewStock() {
+    if (entries.value.length) return;
+    if (confirm(`No stock receipts are recorded for ${date.value}. Would you like to record a new stock receipt for this date?`)) {
+        stock.value.productId = products.value[0]?.id ?? '';
+        document.querySelector('select[aria-label="Stock item"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
 function edit(product?: Product) { editedProduct.value = product; productEditorOpen.value = true; }
 async function deleteProduct(product: Product) {
     if (confirm(`Delete ${product.name} from the active catalogue? Historical sales will be retained.`))
         await run(() => remove(product.id));
+}
+async function eraseSale(sale: Sale) {
+    const key = prompt('Enter the manager erase key to remove this sale and restore stock:');
+    if (!key) return;
+    if (!confirm(`Permanently erase this ${formatMWK(sale.total)} sale? Its stock will be restored.`)) return;
+    await run(async () => { await api.delete(`/${props.section}/sales/${sale.id}?business=${business.value}&key=${encodeURIComponent(key)}`, auth.token); await load(); });
+}
+function printReport(title: string) {
+    const w = window.open('', '_blank'); if (!w) return;
+    w.document.write(`<html><head><title>${title} · ${date.value}</title><style>body{font:14px Arial;margin:32px}h1{color:#1f5b4c}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #ddd}</style></head><body><h1>Good Morning · ${businessName(business.value)}</h1><h2>${title} · ${date.value}</h2>${document.querySelector('[data-print-report]')?.innerHTML ?? ''}</body></html>`); w.document.close(); w.focus(); w.print();
 }
 const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETED').flatMap(s => s.items).filter(i => i.itemId === id).reduce((n, i) => n + i.quantity, 0);
 </script>
@@ -114,6 +135,12 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
       </button>
     </nav>
     <template v-if="tab==='sales'">
+      <section v-if="section==='grocery'" class="panel flex flex-wrap items-end gap-3">
+        <h3 class="w-full font-semibold">Change calculator</h3>
+        <label class="field">Amount due (MWK)<input v-model.number="calculator.amount" class="input" type="number" min="0" step="0.01"></label>
+        <label class="field">Customer paid (MWK)<input v-model.number="calculator.paid" class="input" type="number" min="0" step="0.01"></label>
+        <p class="text-lg font-semibold">Change: {{ formatMWK(changeDue) }}</p>
+      </section>
       <p v-if="!canSell" class="text-sm text-ink-muted">
         Viewing sales history. New sales can be recorded for today by managers and cashiers.
       </p>
@@ -173,10 +200,8 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </form>
       </div>
       <section class="panel space-y-3">
-        <h3 class="font-semibold">
-          Sales · {{ date }}
-        </h3>
-        <div class="overflow-x-auto">
+        <div class="flex items-center justify-between"><h3 class="font-semibold">Sales · {{ date }}</h3><button class="btn-secondary" @click="printReport('Daily sales')">Print</button></div>
+        <div class="overflow-x-auto" data-print-report>
           <table class="data-table">
             <thead>
               <tr>
@@ -195,6 +220,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
                 <th>
                   Cashier
                 </th>
+                <th v-if="canManage">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -214,6 +240,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
                 <td>
                   {{ sale.cashier }}
                 </td>
+                <td v-if="canManage"><button class="btn-secondary text-danger" :disabled="busy" @click="eraseSale(sale)">Erase</button></td>
               </tr>
             </tbody>
           </table>
@@ -224,13 +251,16 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
       </section>
     </template>
     <template v-else-if="tab==='stock'">
+      <label class="field w-fit">Inventory date
+        <input v-model="date" class="input" type="date" :max="today()" :disabled="busy" />
+      </label>
       <p class="text-sm text-ink-muted">
         {{ section==='restaurant' ? 'Enter portions available to sell, for example 20 chicken wings and 10 chicken thighs. Stock starts fresh each date; additional receipts increase that day’s quantity.' : 'Grocery stock carries forward. Record each delivery once.' }}
       </p>
       <form v-if="canManage" class="panel flex flex-wrap items-end gap-3" @submit.prevent="receive">
         <label class="field">
           Item
-          <select v-model="stock.productId" class="input" required>
+          <select v-model="stock.productId" class="input" aria-label="Stock item" required>
             <option disabled value="">
               Select item
             </option>
@@ -244,7 +274,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           <input v-model.number="stock.quantity" class="input" type="number" min="0.01" step="0.01" required />
         </label>
         <label class="field">
-          Notes
+          Notes / Transaction Details
           <input v-model="stock.notes" class="input" maxlength="2000" />
         </label>
         <button class="btn" :disabled="busy">
@@ -294,9 +324,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </table>
       </div>
       <section class="panel">
-        <h3 class="mb-3 font-semibold">
-          Stock receipts · {{ date }}
-        </h3>
+        <div class="mb-3 flex items-center justify-between"><h3 class="font-semibold">Stock receipts · {{ date }}</h3><button class="btn-secondary" @click="printReport('Stock receipts')">Print</button></div>
         <p v-for="e in entries" :key="e.id" class="mb-2 text-sm">
           {{ e.name }} · {{ e.quantity }} · {{ e.notes }}
         </p>

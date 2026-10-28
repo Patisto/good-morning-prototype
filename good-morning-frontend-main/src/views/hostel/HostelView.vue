@@ -10,6 +10,7 @@ import { useTask } from '@/composables/useTask';
 import { downloadAgreement } from '@/lib/accommodation-agreement';
 import StatusPill from '@/components/ui/StatusPill.vue';
 import SearchInput from '@/components/ui/SearchInput.vue';
+import { api, fromApi } from '@/lib/api';
 import { formatMWK, today } from '@/types';
 import type { Room, Tenant } from '@/types';
 type TenantDraft = Omit<Tenant, 'id'>;
@@ -25,6 +26,12 @@ const selectedRoom = ref<Room | null>(null);
 const selectedTenant = ref<Tenant | null>(null);
 const editing = ref(false);
 const savingError = ref('');
+type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; phone:string; email?:string; institution?:string; programme?:string; regNumber?:string; academicYear?:string; submittedAt:string; studentSignature:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
+const applications = ref<StudentApplication[]>([]);
+async function loadApplications() { applications.value = fromApi<{applications:StudentApplication[]}>(await api.get('/hostel/applications', auth.token)).applications; }
+const registrationUrl = `${window.location.origin}/student-registration`;
+async function copyRegistrationLink() { await navigator.clipboard.writeText(registrationUrl); }
+watch(tab, value => { if (value === 'tenants' && canManage.value) void run(loadApplications); });
 const canManage = computed(() => auth.canManage('hostel'));
 const roomsByUnit = computed(() => {
     const groups = new Map<string, Room[]>();
@@ -111,6 +118,16 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
         Add tenant
       </button>
     </div>
+    <section v-if="tab==='tenants' && canManage" class="panel space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-semibold">Student registration link</h3><p class="text-sm text-ink-muted">Share this link with students. Their signed applications will appear here.</p></div><button type="button" class="btn-secondary" @click="copyRegistrationLink">Copy registration link</button></div>
+      <a class="break-all text-sm text-primary underline" :href="registrationUrl" target="_blank" rel="noopener">{{ registrationUrl }}</a>
+      <div class="flex items-center justify-between gap-3"><h3 class="font-semibold">Student applications</h3><button type="button" class="btn-secondary" :disabled="busy" @click="run(loadApplications)">Refresh applications</button></div>
+      <p v-if="!applications.length" class="text-sm text-ink-muted">No student applications loaded. Refresh to check for submissions.</p>
+      <div v-for="application in applications" :key="application.id" class="grid gap-4 rounded border border-line p-4 sm:grid-cols-[1fr_240px]">
+        <div><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p></div>
+        <div><p class="mb-1 text-xs font-medium">Student signature</p><img :src="application.studentSignature" alt="Student online signature" class="h-20 w-full rounded border border-line bg-white object-contain"></div>
+      </div>
+    </section>
     <div v-if="tab === 'rooms'" class="space-y-6">
       <label class="field max-w-sm">Housing unit
         <select v-model="unitFilter" class="input"><option value="">All units</option><option v-for="unit in hostel.units" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select>

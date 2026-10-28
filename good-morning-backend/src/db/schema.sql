@@ -62,6 +62,25 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS student_applications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name text NOT NULL,
+  middle_name text,
+  last_name text NOT NULL,
+  phone text NOT NULL,
+  email text,
+  institution text,
+  programme text,
+  faculty text,
+  department text,
+  year_of_study int,
+  reg_number text,
+  academic_year text,
+  preferred_room_id text REFERENCES rooms(id),
+  student_signature text NOT NULL,
+  submitted_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS hostel_payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES tenants(id),

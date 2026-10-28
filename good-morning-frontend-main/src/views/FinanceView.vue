@@ -29,6 +29,7 @@ const business = ref(typeof route.query.business === 'string' ? route.query.busi
 const businesses = ref<Business[]>([]), summary = ref<Summary[]>([]), entries = ref<Entry[]>([]);
 const kind = ref('ALL'), expenseOpen = ref(false), paymentOpen = ref(false);
 const totals = computed(() => summary.value.reduce((total, row) => ({ income: total.income + row.income, expenses: total.expenses + row.expenses, count: total.count + row.count }), { income: 0, expenses: 0, count: 0 }));
+function printReport() { window.print(); }
 const visible = computed(() => entries.value.filter(entry => kind.value === 'ALL' || entry.kind === kind.value));
 const expenseBusiness = computed(() => businesses.value.find(b => b === business.value && b !== 'RESTAURANT'));
 async function load() {
@@ -92,6 +93,7 @@ onMounted(() => run(load));
       <button class="btn" :disabled="busy">
         {{ busy ? 'Loading…' : 'View finances' }}
       </button>
+      <button type="button" class="btn-secondary" @click="printReport">Print filtered report</button>
     </form>
     <div class="grid gap-3 sm:grid-cols-3">
       <div class="panel">

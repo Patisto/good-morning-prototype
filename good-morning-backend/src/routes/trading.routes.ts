@@ -76,5 +76,15 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         });
         res.json({ id });
     }));
+    router.delete('/sales/:id', requireManager(section), route(async (req, res) => {
+        const configuredKey = process.env.SALE_ERASE_KEY;
+        check(!!configuredKey && typeof req.query.key === 'string' && req.query.key === configuredKey, 'The sale erase key is missing or incorrect.', 403);
+        await transaction(async db => {
+            const sale = await db.query('SELECT id FROM sales WHERE id=$1 AND business=$2 FOR UPDATE', [req.params.id, res.locals.business]);
+            check(sale.rowCount, 'Sale not found.', 404);
+            await db.query('DELETE FROM sales WHERE id=$1', [req.params.id]);
+        });
+        res.json({ ok: true });
+    }));
     return router;
 }
