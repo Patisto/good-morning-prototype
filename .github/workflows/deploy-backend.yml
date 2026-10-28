@@ -176,10 +176,6 @@ jobs:
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
             "set -eu
-             if sudo pm2 describe good-morning-api >/dev/null 2>&1; then
-               sudo pm2 delete good-morning-api
-               sudo pm2 save
-             fi
              tar -xzf '$ARCHIVE' -C '$RELEASE'
              rm -f '$ARCHIVE'
              node '$RELEASE/ops/deploy.cjs' '$RELEASE'"

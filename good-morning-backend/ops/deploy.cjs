@@ -23,7 +23,9 @@ function run(script, env) {
   if (result.status !== 0) throw new Error(`${script} exited with status ${result.status}`);
 }
 function runPm2(env) {
-  const result = spawnSync('pm2', ['startOrReload', path.join(release, 'ecosystem.config.cjs'), '--update-env'], {
+  // Replace the named process so PM2 cannot keep a script path from an older release.
+  spawnSync('pm2', ['delete', 'good-morning-api'], { cwd: release, env: { ...process.env, ...env }, stdio: 'ignore' });
+  const result = spawnSync('pm2', ['start', path.join(release, 'ecosystem.config.cjs'), '--update-env'], {
     cwd: release, env: { ...process.env, ...env }, stdio: 'inherit'
   });
   if (result.error) throw result.error;
