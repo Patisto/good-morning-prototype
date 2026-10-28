@@ -38,6 +38,8 @@ function verifyRoutes(port) {
     spawnSync('sleep', ['1']);
   }
   if (!healthy) throw new Error('The deployed API did not become healthy within 30 seconds.');
+  const options = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/registration/options`], { encoding: 'utf8' });
+  if (options.status !== 0 || options.stdout !== '200') throw new Error(`The public student registration route check returned HTTP ${options.stdout || 'no response'}; expected 200.`);
   const route = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/applications`], { encoding: 'utf8' });
   if (route.status !== 0 || route.stdout !== '401') throw new Error(`The student applications route check returned HTTP ${route.stdout || 'no response'}; expected 401 from the auth guard.`);
 }

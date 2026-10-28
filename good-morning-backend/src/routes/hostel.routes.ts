@@ -23,15 +23,45 @@ router.post('/registration', route(async (req, res) => {
         const room = await pool.query(`SELECT r.capacity,(SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants FROM rooms r WHERE r.id=$1 AND r.archived_at IS NULL`, [roomId]);
         check(room.rowCount, 'Selected room is unavailable.');
     }
-    const result = await pool.query(`INSERT INTO student_applications(first_name,middle_name,last_name,phone,email,institution,programme,faculty,department,year_of_study,reg_number,academic_year,preferred_room_id,student_signature)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, [first, b.middleName || null, last, phone, b.email || null, b.institution || null, b.programme || null, b.faculty || null, b.department || null, b.yearOfStudy || null, b.regNumber || null, b.academicYear || null, roomId, b.studentSignature]);
+    const result = await pool.query(`INSERT INTO student_applications(first_name,middle_name,last_name,phone,email,institution,programme,faculty,department,year_of_study,reg_number,academic_year,preferred_room_id,student_signature,gender,date_of_birth,alt_phone,home_district,home_address,emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,move_in_date,deposit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`, [first, b.middleName || null, last, phone, b.email || null, b.institution || null, b.programme || null, b.faculty || null, b.department || null, b.yearOfStudy || null, b.regNumber || null, b.academicYear || null, roomId, b.studentSignature, b.gender || null, b.dateOfBirth ? date(b.dateOfBirth) : null, b.altPhone || null, b.homeDistrict || null, b.homeAddress || null, b.emergencyContactName || null, b.emergencyContactPhone || null, b.emergencyContactRelationship || null, b.moveInDate ? date(b.moveInDate) : null, b.deposit || 0]);
     res.json({ id: result.rows[0].id });
 }));
 router.use(requireAuth, requireSection('hostel'));
 const manage = requireManager('hostel');
 router.get('/applications', manage, route(async (_req, res) => {
-    const result = await pool.query(`SELECT a.*,r.label AS room_label,r.identifier AS room_identifier,u.name AS housing_unit FROM student_applications a LEFT JOIN rooms r ON r.id=a.preferred_room_id LEFT JOIN housing_units u ON u.id=r.housing_unit_id ORDER BY a.submitted_at DESC`);
+    const result = await pool.query(`SELECT a.*,r.label AS room_label,r.identifier AS room_identifier,u.name AS housing_unit FROM student_applications a LEFT JOIN rooms r ON r.id=a.preferred_room_id LEFT JOIN housing_units u ON u.id=r.housing_unit_id ORDER BY (a.status='PENDING') DESC,a.submitted_at DESC`);
     res.json({ applications: result.rows });
+}));
+router.post('/applications/:id/approve', manage, route(async (req, res) => {
+    const b = req.body, tenantId = randomUUID();
+    const first = text(b.firstName, 'First name'), last = text(b.lastName, 'Last name'), phone = text(b.phone, 'Phone');
+    const roomId = text(b.roomId, 'Room'), moveIn = date(b.moveInDate);
+    const deposit = number(b.deposit ?? 0, 'Deposit');
+    await transaction(async db => {
+        const application = await db.query("SELECT id FROM student_applications WHERE id=$1 AND status='PENDING' FOR UPDATE", [req.params.id]);
+        check(application.rowCount, 'Application is no longer pending.', 409);
+        const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
+        check(room.rowCount, 'Select an existing room.');
+        const occupancy = await db.query('SELECT COUNT(*)::int AS n FROM tenants WHERE room_id=$1 AND deleted_at IS NULL AND checkout_date IS NULL', [roomId]);
+        check(occupancy.rows[0].n < room.rows[0].capacity, 'That room is full.');
+        const rate = await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1', [roomId, moveIn.slice(0, 7)]);
+        const profileFields = ['middleName','gender','dateOfBirth','altPhone','email','homeDistrict','homeAddress','emergencyContactName','emergencyContactPhone','emergencyContactRelationship','institution','programme','faculty','department','yearOfStudy','regNumber','academicYear'] as const;
+        const snake = (key: string) => key.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
+        const columns = ['id','first_name','last_name','phone','room_id','move_in_date','monthly_amount','deposit','agreement_status'];
+        const values: unknown[] = [tenantId, first, last, phone, roomId, moveIn, rate.rows[0]?.amount ?? 0, deposit, 'PENDING'];
+        for (const field of profileFields) {
+            const value = b[field] === '' || b[field] === undefined ? null : b[field];
+            if (field === 'dateOfBirth' && value !== null) date(value);
+            if (field === 'yearOfStudy' && value !== null) check(Number.isInteger(value) && value > 0, 'Invalid year of study.');
+            if (field !== 'yearOfStudy' && value !== null) check(typeof value === 'string' && value.length <= 500, `Invalid ${field}.`);
+            columns.push(snake(field)); values.push(value);
+        }
+        await db.query(`INSERT INTO tenants(${columns.join(',')}) VALUES (${values.map((_,i)=>'$'+(i+1)).join(',')})`, values);
+        await db.query('INSERT INTO rent_charges(tenant_id,month,expected_amount) VALUES($1,$2,$3) ON CONFLICT(tenant_id,month) DO NOTHING', [tenantId, moveIn.slice(0, 7), rate.rows[0]?.amount ?? 0]);
+        await db.query("UPDATE student_applications SET status='APPROVED',tenant_id=$2 WHERE id=$1", [req.params.id, tenantId]);
+    });
+    res.json({ id: tenantId });
 }));
 router.get('/', route(async (req, res) => {
     const period = month(req.query.month);

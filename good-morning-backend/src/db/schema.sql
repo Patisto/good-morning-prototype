@@ -78,8 +78,32 @@ CREATE TABLE IF NOT EXISTS student_applications (
   academic_year text,
   preferred_room_id text REFERENCES rooms(id),
   student_signature text NOT NULL,
+  gender text,
+  date_of_birth date,
+  alt_phone text,
+  home_district text,
+  home_address text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  emergency_contact_relationship text,
+  move_in_date date,
+  deposit numeric(12,2) NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','DECLINED')),
+  tenant_id uuid REFERENCES tenants(id),
   submitted_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS gender text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS date_of_birth date;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS alt_phone text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_district text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_address text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_name text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_phone text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_relationship text;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS move_in_date date;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS deposit numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'PENDING';
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

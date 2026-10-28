@@ -26,8 +26,9 @@ const selectedRoom = ref<Room | null>(null);
 const selectedTenant = ref<Tenant | null>(null);
 const editing = ref(false);
 const savingError = ref('');
-type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; phone:string; email?:string; institution?:string; programme?:string; regNumber?:string; academicYear?:string; submittedAt:string; studentSignature:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
+type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; gender?:string; dateOfBirth?:string; phone:string; altPhone?:string; email?:string; homeDistrict?:string; homeAddress?:string; emergencyContactName?:string; emergencyContactPhone?:string; emergencyContactRelationship?:string; institution?:string; programme?:string; faculty?:string; department?:string; yearOfStudy?:number; regNumber?:string; academicYear?:string; preferredRoomId?:string; moveInDate?:string; deposit?:number; submittedAt:string; studentSignature:string; status:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
 const applications = ref<StudentApplication[]>([]);
+const reviewingApplicationId = ref<string | null>(null);
 async function loadApplications() { applications.value = fromApi<{applications:StudentApplication[]}>(await api.get('/hostel/applications', auth.token)).applications; }
 const registrationUrl = `${window.location.origin}/student-registration`;
 async function copyRegistrationLink() { await navigator.clipboard.writeText(registrationUrl); }
@@ -67,11 +68,25 @@ watch(() => form.value.roomId, id => { form.value.monthlyAmount = hostel.rooms.f
 async function saveTenant() {
     savingError.value = '';
     await run(async () => {
-        const result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: selectedTenant.value.id }) : await hostel.addTenant(form.value);
+        let result: { id: string };
+        if (reviewingApplicationId.value) {
+            result = await api.post<{id:string}>(`/hostel/applications/${reviewingApplicationId.value}/approve`, form.value, auth.token);
+            reviewingApplicationId.value = null;
+            await hostel.hydrate();
+            await loadApplications();
+        } else {
+            result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: selectedTenant.value.id }) : await hostel.addTenant(form.value);
+        }
         selectedTenant.value = hostel.tenants.find(t => t.id === result.id) ?? null;
         editing.value = false;
     });
     savingError.value = error.value;
+}
+function reviewApplication(application: StudentApplication) {
+    selectedRoom.value = null; selectedTenant.value = null; reviewingApplicationId.value = application.id;
+    const room = hostel.rooms.find(entry => entry.id === application.preferredRoomId);
+    form.value = { ...blankTenant(), ...application, roomId: room?.id ?? '', monthlyAmount: room?.monthlyPrice ?? hostel.defaultPrice, moveInDate: application.moveInDate || today(), agreementStatus: 'PENDING' };
+    savingError.value = ''; editing.value = true;
 }
 async function checkout() {
     if (!selectedTenant.value || !confirm('Check out this tenant today? Payment history will be retained.'))
@@ -81,7 +96,7 @@ async function checkout() {
         selectedTenant.value = null;
     });
 }
-function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false; }
+function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false; reviewingApplicationId.value = null; }
 </script>
 
 <template>
@@ -124,7 +139,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       <div class="flex items-center justify-between gap-3"><h3 class="font-semibold">Student applications</h3><button type="button" class="btn-secondary" :disabled="busy" @click="run(loadApplications)">Refresh applications</button></div>
       <p v-if="!applications.length" class="text-sm text-ink-muted">No student applications loaded. Refresh to check for submissions.</p>
       <div v-for="application in applications" :key="application.id" class="grid gap-4 rounded border border-line p-4 sm:grid-cols-[1fr_240px]">
-        <div><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p></div>
+        <div><div class="flex items-center justify-between gap-2"><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><span class="text-xs font-semibold uppercase text-ink-muted">{{ application.status }}</span></div><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p><button v-if="application.status==='PENDING'" type="button" class="btn mt-3" @click="reviewApplication(application)">Review / add tenant</button></div>
         <div><p class="mb-1 text-xs font-medium">Student signature</p><img :src="application.studentSignature" alt="Student online signature" class="h-20 w-full rounded border border-line bg-white object-contain"></div>
       </div>
     </section>
@@ -200,7 +215,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
 
   </div>
   <ReceivePaymentModal v-if="paymentTenant!==null" :tenant-id="paymentTenant" @close="paymentTenant=null" @saved="run(()=>hostel.hydrate())" />
-  <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
+  <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (reviewingApplicationId ? 'Review student application' : selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
       <div v-if="selectedRoom && !editing" class="space-y-3 p-5">
         <p class="text-sm text-ink-muted">
           {{ selectedRoom.housingUnit }} · {{ selectedRoom.occupants }}/{{ selectedRoom.capacity }} occupants
