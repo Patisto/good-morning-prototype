@@ -68,16 +68,20 @@ watch(() => form.value.roomId, id => { form.value.monthlyAmount = hostel.rooms.f
 async function saveTenant() {
     savingError.value = '';
     await run(async () => {
-        let result: { id: string };
+        let tenantId: string;
         if (reviewingApplicationId.value) {
-            result = await api.post<{id:string}>(`/hostel/applications/${reviewingApplicationId.value}/approve`, form.value, auth.token);
+            const result = await api.post<{id:string}>(`/hostel/applications/${reviewingApplicationId.value}/approve`, form.value, auth.token);
+            tenantId = result.id;
             reviewingApplicationId.value = null;
             await hostel.hydrate();
             await loadApplications();
         } else {
-            result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: selectedTenant.value.id }) : await hostel.addTenant(form.value);
+            const existingId = selectedTenant.value?.id;
+            const result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: existingId! }) : await hostel.addTenant(form.value);
+            tenantId = result.id ?? existingId ?? '';
+            if (!tenantId) throw new Error('Tenant was saved, but the server did not return its record ID. Refresh the tenant list.');
         }
-        selectedTenant.value = hostel.tenants.find(t => t.id === result.id) ?? null;
+        selectedTenant.value = hostel.tenants.find(t => t.id === tenantId) ?? null;
         editing.value = false;
     });
     savingError.value = error.value;
