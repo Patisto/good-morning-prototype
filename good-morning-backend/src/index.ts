@@ -12,8 +12,21 @@ import reportsRoutes from './routes/reports.routes';
 import { HttpError } from './utils/http';
 dotenv.config();
 const app = express();
-const frontendOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',').map(origin => origin.trim()).filter(Boolean);
-app.use(cors({ origin: (origin, callback) => callback(null, !origin || frontendOrigins.includes(origin)) }));
+const frontendOrigins = new Set<string>();
+for (const configured of (process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',')) {
+    try {
+        const url = new URL(configured.trim());
+        frontendOrigins.add(url.origin);
+        url.hostname = url.hostname.startsWith('www.') ? url.hostname.slice(4) : `www.${url.hostname}`;
+        frontendOrigins.add(url.origin);
+    } catch { /* Ignore invalid entries; valid configured origins remain active. */ }
+}
+app.use(cors({ origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    let normalized = origin;
+    try { normalized = new URL(origin).origin; } catch { /* Reject malformed origins below. */ }
+    callback(null, frontendOrigins.has(normalized));
+} }));
 app.use(express.json());
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);

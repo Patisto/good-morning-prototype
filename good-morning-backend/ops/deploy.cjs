@@ -40,6 +40,11 @@ function verifyRoutes(port) {
     spawnSync('sleep', ['1']);
   }
   if (!healthy) throw new Error('The deployed API did not become healthy within 30 seconds.');
+  for (const origin of ['https://www.goodmorningmw.online', 'https://goodmorningmw.online']) {
+    const cors = spawnSync('curl', ['--silent', '--show-error', '--dump-header', '-', '--output', '/dev/null', '--header', `Origin: ${origin}`, `${base}/api/health`], { encoding: 'utf8' });
+    const allowedOrigin = cors.stdout.match(/^access-control-allow-origin:\s*(.+)$/im)?.[1]?.trim();
+    if (cors.status !== 0 || allowedOrigin !== origin) throw new Error(`CORS check failed for ${origin}; got ${allowedOrigin || 'no Access-Control-Allow-Origin header'}.`);
+  }
   const options = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/registration/options`], { encoding: 'utf8' });
   if (options.status !== 0 || options.stdout !== '200') throw new Error(`The public student registration route check returned HTTP ${options.stdout || 'no response'}; expected 200.`);
   const route = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/applications`], { encoding: 'utf8' });
