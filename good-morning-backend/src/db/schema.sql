@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   monthly_amount numeric(12, 2) NOT NULL DEFAULT 0,
   deposit numeric(12, 2) NOT NULL DEFAULT 0,
   agreement_status text NOT NULL DEFAULT 'PENDING' CHECK (agreement_status IN ('PENDING', 'SIGNED', 'EXPIRED')),
+  agreement_signature text,
   deleted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS student_applications (
   academic_year text,
   preferred_room_id text REFERENCES rooms(id),
   student_signature text NOT NULL,
+  agreement_status text NOT NULL DEFAULT 'PENDING',
   gender text,
   date_of_birth date,
   alt_phone text,
@@ -104,6 +106,8 @@ ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS move_in_date date;
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS deposit numeric(12,2) NOT NULL DEFAULT 0;
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'PENDING';
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS agreement_status text NOT NULL DEFAULT 'PENDING';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

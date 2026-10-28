@@ -8,6 +8,7 @@ const router = Router();
 router.get('/registration/options', route(async (_req, res) => {
     const [rooms, settings] = await Promise.all([
         pool.query(`SELECT r.id,r.label,r.identifier,u.name AS housing_unit,r.capacity,
+          COALESCE((SELECT amount FROM room_rates WHERE room_id=r.id AND effective_month <= to_char(now() AT TIME ZONE 'Africa/Blantyre','YYYY-MM') ORDER BY effective_month DESC LIMIT 1),0) AS monthly_price,
           (SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants
           FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`),
         pool.query('SELECT name FROM housing_units ORDER BY name'),
@@ -18,13 +19,14 @@ router.post('/registration', route(async (req, res) => {
     const b = req.body;
     const first = text(b.firstName, 'First name'), last = text(b.lastName, 'Last name'), phone = text(b.phone, 'Phone');
     check(typeof b.studentSignature === 'string' && /^data:image\/(png|jpeg);base64,/.test(b.studentSignature) && b.studentSignature.length < 700000, 'Please provide a valid online signature.');
+    check(b.agreementRead === true, 'Please read and sign the accommodation agreement before submitting.');
     const roomId = typeof b.preferredRoomId === 'string' && b.preferredRoomId ? b.preferredRoomId : null;
     if (roomId) {
         const room = await pool.query(`SELECT r.capacity,(SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants FROM rooms r WHERE r.id=$1 AND r.archived_at IS NULL`, [roomId]);
         check(room.rowCount, 'Selected room is unavailable.');
     }
-    const result = await pool.query(`INSERT INTO student_applications(first_name,middle_name,last_name,phone,email,institution,programme,faculty,department,year_of_study,reg_number,academic_year,preferred_room_id,student_signature,gender,date_of_birth,alt_phone,home_district,home_address,emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,move_in_date,deposit)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`, [first, b.middleName || null, last, phone, b.email || null, b.institution || null, b.programme || null, b.faculty || null, b.department || null, b.yearOfStudy || null, b.regNumber || null, b.academicYear || null, roomId, b.studentSignature, b.gender || null, b.dateOfBirth ? date(b.dateOfBirth) : null, b.altPhone || null, b.homeDistrict || null, b.homeAddress || null, b.emergencyContactName || null, b.emergencyContactPhone || null, b.emergencyContactRelationship || null, b.moveInDate ? date(b.moveInDate) : null, b.deposit || 0]);
+    const result = await pool.query(`INSERT INTO student_applications(first_name,middle_name,last_name,phone,email,institution,programme,faculty,department,year_of_study,reg_number,academic_year,preferred_room_id,student_signature,agreement_status,gender,date_of_birth,alt_phone,home_district,home_address,emergency_contact_name,emergency_contact_phone,emergency_contact_relationship,move_in_date,deposit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'SIGNED',$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`, [first, b.middleName || null, last, phone, b.email || null, b.institution || null, b.programme || null, b.faculty || null, b.department || null, b.yearOfStudy || null, b.regNumber || null, b.academicYear || null, roomId, b.studentSignature, b.gender || null, b.dateOfBirth ? date(b.dateOfBirth) : null, b.altPhone || null, b.homeDistrict || null, b.homeAddress || null, b.emergencyContactName || null, b.emergencyContactPhone || null, b.emergencyContactRelationship || null, b.moveInDate ? date(b.moveInDate) : null, b.deposit || 0]);
     res.json({ id: result.rows[0].id });
 }));
 router.use(requireAuth, requireSection('hostel'));
@@ -39,7 +41,7 @@ router.post('/applications/:id/approve', manage, route(async (req, res) => {
     const roomId = text(b.roomId, 'Room'), moveIn = date(b.moveInDate);
     const deposit = number(b.deposit ?? 0, 'Deposit');
     await transaction(async db => {
-        const application = await db.query("SELECT id FROM student_applications WHERE id=$1 AND status='PENDING' FOR UPDATE", [req.params.id]);
+        const application = await db.query("SELECT id,agreement_status,student_signature FROM student_applications WHERE id=$1 AND status='PENDING' FOR UPDATE", [req.params.id]);
         check(application.rowCount, 'Application is no longer pending.', 409);
         const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
         check(room.rowCount, 'Select an existing room.');
@@ -48,8 +50,8 @@ router.post('/applications/:id/approve', manage, route(async (req, res) => {
         const rate = await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1', [roomId, moveIn.slice(0, 7)]);
         const profileFields = ['middleName','gender','dateOfBirth','altPhone','email','homeDistrict','homeAddress','emergencyContactName','emergencyContactPhone','emergencyContactRelationship','institution','programme','faculty','department','yearOfStudy','regNumber','academicYear'] as const;
         const snake = (key: string) => key.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
-        const columns = ['id','first_name','last_name','phone','room_id','move_in_date','monthly_amount','deposit','agreement_status'];
-        const values: unknown[] = [tenantId, first, last, phone, roomId, moveIn, rate.rows[0]?.amount ?? 0, deposit, 'PENDING'];
+        const columns = ['id','first_name','last_name','phone','room_id','move_in_date','monthly_amount','deposit','agreement_status','agreement_signature'];
+        const values: unknown[] = [tenantId, first, last, phone, roomId, moveIn, rate.rows[0]?.amount ?? 0, deposit, application.rows[0].agreement_status, application.rows[0].student_signature];
         for (const field of profileFields) {
             const value = b[field] === '' || b[field] === undefined ? null : b[field];
             if (field === 'dateOfBirth' && value !== null) date(value);

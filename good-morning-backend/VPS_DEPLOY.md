@@ -66,6 +66,7 @@ JWT_SECRET=PASTE_A_LONG_RANDOM_SECRET
 JWT_EXPIRES_IN=12h
 PORT=4000
 FRONTEND_URL=https://www.goodmorningmw.online,https://goodmorningmw.online
+SALE_ERASE_KEY=SET_A_PRIVATE_RANDOM_KEY
 ```
 
 Create `/srv/good-morning/shared/deploy.env`:
@@ -88,6 +89,8 @@ chmod 600 /srv/good-morning/shared/app.env /srv/good-morning/shared/deploy.env
 ```
 
 Generate a JWT secret on the VPS with `openssl rand -hex 32`. `FRONTEND_URL` accepts a comma-separated list of exact browser origins; include both the `www` and apex domains if users may open either. Keep each origin exact, including `https://` and any non-default port. The app and deployment connection URLs should use the role passwords from step 2.
+
+Set `SALE_ERASE_KEY` to a private random value. Managers must enter that exact value to erase a sale; there is no default key. Generate one on the VPS with `openssl rand -hex 24`, save it in `app.env`, and redeploy so the API receives it.
 
 ## 5. Configure GitHub Actions access
 

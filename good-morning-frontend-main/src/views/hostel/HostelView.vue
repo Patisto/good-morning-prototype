@@ -26,9 +26,16 @@ const selectedRoom = ref<Room | null>(null);
 const selectedTenant = ref<Tenant | null>(null);
 const editing = ref(false);
 const savingError = ref('');
-type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; gender?:string; dateOfBirth?:string; phone:string; altPhone?:string; email?:string; homeDistrict?:string; homeAddress?:string; emergencyContactName?:string; emergencyContactPhone?:string; emergencyContactRelationship?:string; institution?:string; programme?:string; faculty?:string; department?:string; yearOfStudy?:number; regNumber?:string; academicYear?:string; preferredRoomId?:string; moveInDate?:string; deposit?:number; submittedAt:string; studentSignature:string; status:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
+type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; gender?:string; dateOfBirth?:string; phone:string; altPhone?:string; email?:string; homeDistrict?:string; homeAddress?:string; emergencyContactName?:string; emergencyContactPhone?:string; emergencyContactRelationship?:string; institution?:string; programme?:string; faculty?:string; department?:string; yearOfStudy?:number; regNumber?:string; academicYear?:string; preferredRoomId?:string; moveInDate?:string; deposit?:number; submittedAt:string; studentSignature:string; agreementStatus:string; status:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
 const applications = ref<StudentApplication[]>([]);
 const reviewingApplicationId = ref<string | null>(null);
+const applicationsOpen = ref(false), applicationSearch = ref(''), showAllApplications = ref(false);
+const filteredApplications = computed(() => {
+    const query = applicationSearch.value.trim().toLowerCase();
+    if (!query) return applications.value;
+    return applications.value.filter(application => `${application.firstName} ${application.middleName ?? ''} ${application.lastName} ${application.phone} ${application.email ?? ''} ${application.institution ?? ''} ${application.programme ?? ''} ${application.regNumber ?? ''} ${application.status}`.toLowerCase().includes(query));
+});
+const visibleApplications = computed(() => showAllApplications.value ? filteredApplications.value : filteredApplications.value.slice(0, 10));
 async function loadApplications() { applications.value = fromApi<{applications:StudentApplication[]}>(await api.get('/hostel/applications', auth.token)).applications; }
 const registrationUrl = `${window.location.origin}/student-registration`;
 async function copyRegistrationLink() { await navigator.clipboard.writeText(registrationUrl); }
@@ -140,11 +147,15 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
     <section v-if="tab==='tenants' && canManage" class="panel space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-semibold">Student registration link</h3><p class="text-sm text-ink-muted">Share this link with students. Their signed applications will appear here.</p></div><button type="button" class="btn-secondary" @click="copyRegistrationLink">Copy registration link</button></div>
       <a class="break-all text-sm text-primary underline" :href="registrationUrl" target="_blank" rel="noopener">{{ registrationUrl }}</a>
-      <div class="flex items-center justify-between gap-3"><h3 class="font-semibold">Student applications</h3><button type="button" class="btn-secondary" :disabled="busy" @click="run(loadApplications)">Refresh applications</button></div>
-      <p v-if="!applications.length" class="text-sm text-ink-muted">No student applications loaded. Refresh to check for submissions.</p>
-      <div v-for="application in applications" :key="application.id" class="grid gap-4 rounded border border-line p-4 sm:grid-cols-[1fr_240px]">
-        <div><div class="flex items-center justify-between gap-2"><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><span class="text-xs font-semibold uppercase text-ink-muted">{{ application.status }}</span></div><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p><button v-if="application.status==='PENDING'" type="button" class="btn mt-3" @click="reviewApplication(application)">Review / add tenant</button></div>
+      <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-semibold">Student applications · {{ applications.length }}</h3><div class="flex gap-2"><button type="button" class="btn-secondary" :aria-expanded="applicationsOpen" @click="applicationsOpen=!applicationsOpen">{{ applicationsOpen ? 'Hide applications' : 'View applications' }}</button><button type="button" class="btn-secondary" :disabled="busy" @click="run(loadApplications)">Refresh</button></div></div>
+      <div v-if="applicationsOpen" class="space-y-3">
+      <label class="field">Search applications<input v-model="applicationSearch" class="input" placeholder="Name, phone, institution, or status"></label>
+      <p v-if="!filteredApplications.length" class="text-sm text-ink-muted">{{ applications.length ? 'No applications match this search.' : 'No student applications yet.' }}</p>
+      <div v-for="application in visibleApplications" :key="application.id" class="grid gap-4 rounded border border-line p-4 sm:grid-cols-[1fr_240px]">
+        <div><div class="flex items-center justify-between gap-2"><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><span class="text-xs font-semibold uppercase text-ink-muted">{{ application.status }} · agreement {{ application.agreementStatus.toLowerCase() }}</span></div><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p><button v-if="application.status==='PENDING'" type="button" class="btn mt-3" @click="reviewApplication(application)">Review / add tenant</button></div>
         <div><p class="mb-1 text-xs font-medium">Student signature</p><img :src="application.studentSignature" alt="Student online signature" class="h-20 w-full rounded border border-line bg-white object-contain"></div>
+      </div>
+      <button v-if="filteredApplications.length>10" type="button" class="btn-secondary" @click="showAllApplications=!showAllApplications">{{ showAllApplications ? 'Show latest 10' : `Show all ${filteredApplications.length} applications` }}</button>
       </div>
     </section>
     <div v-if="tab === 'rooms'" class="space-y-6">

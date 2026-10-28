@@ -19,13 +19,14 @@ const productEditorOpen = ref(false);
 const editedProduct = ref<Product | undefined>();
 const stock = ref({ productId: '', quantity: 0, notes: '' });
 const calculator = ref({ paid: 0, amount: 0 });
+const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
 const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - Number(calculator.value.amount || 0)));
 const filtered = computed(() => products.value.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(search.value.toLowerCase())));
 const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
 const tabs = computed(() => canManage.value ? ['sales', 'stock', 'configuration'] : ['sales', 'stock']);
-watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; });
+watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; });
 watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); await promptNewStock(); } });
 function add(product: Product) {
     const line = cart.value.find(l => l.itemId === product.id);
@@ -200,7 +201,9 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </form>
       </div>
       <section class="panel space-y-3">
-        <div class="flex items-center justify-between"><h3 class="font-semibold">Sales · {{ date }}</h3><button class="btn-secondary" @click="printReport('Daily sales')">Print</button></div>
+        <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="font-semibold">Sale receipts · {{ date }} ({{ sales.length }})</h3><button type="button" class="btn-secondary" :aria-expanded="salesReceiptsOpen" @click="salesReceiptsOpen=!salesReceiptsOpen">{{ salesReceiptsOpen ? 'Hide sale receipts' : 'View sale receipts' }}</button></div>
+        <div v-if="salesReceiptsOpen" class="space-y-3">
+        <div class="flex justify-end"><button type="button" class="btn-secondary" @click="printReport('Daily sales')">Print receipts</button></div>
         <div class="overflow-x-auto" data-print-report>
           <table class="data-table">
             <thead>
@@ -248,6 +251,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         <p v-if="!sales.length" class="text-sm text-ink-muted">
           No sales for this date.
         </p>
+        </div>
       </section>
     </template>
     <template v-else-if="tab==='stock'">
@@ -324,13 +328,16 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </table>
       </div>
       <section class="panel">
-        <div class="mb-3 flex items-center justify-between"><h3 class="font-semibold">Stock receipts · {{ date }}</h3><button class="btn-secondary" @click="printReport('Stock receipts')">Print</button></div>
+        <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="font-semibold">Stock receipts · {{ date }} ({{ entries.length }})</h3><button type="button" class="btn-secondary" :aria-expanded="stockReceiptsOpen" @click="stockReceiptsOpen=!stockReceiptsOpen">{{ stockReceiptsOpen ? 'Hide receipts' : 'View stock receipts' }}</button></div>
+        <div v-if="stockReceiptsOpen" class="mt-3 space-y-3">
+        <div class="flex justify-end"><button type="button" class="btn-secondary" @click="printReport('Stock receipts')">Print receipts</button></div>
         <p v-for="e in entries" :key="e.id" class="mb-2 text-sm">
           {{ e.name }} · {{ e.quantity }} · {{ e.notes }}
         </p>
         <p v-if="!entries.length" class="text-sm text-ink-muted">
           No stock received for this date.
         </p>
+        </div>
       </section>
     </template>
     <template v-else-if="tab==='configuration' && canManage">

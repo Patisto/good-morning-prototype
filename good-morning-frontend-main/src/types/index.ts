@@ -42,6 +42,7 @@ export interface Tenant {
     moveInDate: string;
     checkoutDate?: string;
     agreementStatus: 'PENDING' | 'SIGNED' | 'EXPIRED';
+    agreementSignature?: string;
 }
 export interface HostelPayment {
     id: string;
