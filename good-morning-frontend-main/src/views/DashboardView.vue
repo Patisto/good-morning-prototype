@@ -28,7 +28,7 @@ onMounted(() => { if (auth.canReport)
         {{ auth.canReport ? 'Business overview' : `Welcome, ${auth.name}` }}
       </h2>
       <p class="mt-1 text-sm text-ink-muted">
-        {{ auth.canReport ? 'Revenue and expenses across Hostel, Restaurant A, Restaurant B, and Grocery.' : 'Open your workspace to manage today’s operations.' }}
+        {{ auth.canReport ? 'Revenue and expenses across Hostel, Upper Restaurant, Lower Restaurant, and Grocery.' : 'Open your workspace to manage today’s operations.' }}
       </p>
     </header>
     <p v-if="error" class="error" role="alert">

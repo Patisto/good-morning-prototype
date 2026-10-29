@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { requireAuth, requireSection } from '../middleware/auth';
 import { allowedBusinesses } from '../types';
-import { check, date, route } from '../utils/http';
+import { check, date, route, transaction } from '../utils/http';
 const router = Router();
 router.use(requireAuth, requireSection('finance'));
 router.get('/', route(async (req, res) => {
@@ -30,5 +30,31 @@ router.get('/', route(async (req, res) => {
             ORDER BY date DESC,created_at DESC,id DESC LIMIT 200`, args),
     ]);
     res.json({ businesses, summary: summary.rows, entries: entries.rows });
+}));
+router.post('/transactions/erase', route(async (req, res) => {
+    const role = req.user!.role;
+    const mayErase = ['OWNER','ADMINISTRATOR','SUPER_MANAGER','HOSTEL_MANAGER','RESTAURANT_MANAGER','GROCERY_MANAGER'].includes(role);
+    check(mayErase, 'Manager access is required to erase transactions.', 403);
+    const configuredKey = process.env.SALE_ERASE_KEY;
+    check(!!configuredKey && typeof req.body.key === 'string' && req.body.key === configuredKey, 'The manager erase key is missing or incorrect.', 403);
+    const businesses = allowedBusinesses(role);
+    const from = date(req.body.from), to = date(req.body.to);
+    check(from <= to, 'Start date must be before end date.');
+    const selected = req.body.business;
+    check(!selected || businesses.includes(selected), 'You cannot erase transactions for this business.', 403);
+    const scope = selected ? [selected] : businesses;
+    const deleted = await transaction(async db => {
+        const sales = await db.query("DELETE FROM sales WHERE status='COMPLETED' AND business=ANY($1::text[]) AND date BETWEEN $2 AND $3", [scope, from, to]);
+        const expenses = await db.query('DELETE FROM expenses WHERE business=ANY($1::text[]) AND date BETWEEN $2 AND $3', [scope, from, to]);
+        let hostelReceiptCount = 0;
+        if (scope.includes('HOSTEL')) {
+            const receipts = await db.query<{ legacy_payment_id: string | null }>('DELETE FROM rent_receipts WHERE payment_date BETWEEN $1 AND $2 RETURNING legacy_payment_id', [from, to]);
+            hostelReceiptCount = receipts.rowCount ?? 0;
+            const legacyIds = receipts.rows.map(receipt => receipt.legacy_payment_id).filter((id): id is string => !!id);
+            if (legacyIds.length) await db.query('DELETE FROM hostel_payments WHERE id=ANY($1::uuid[])', [legacyIds]);
+        }
+        return { sales: sales.rowCount ?? 0, expenses: expenses.rowCount ?? 0, hostelReceipts: hostelReceiptCount };
+    });
+    res.json({ ok: true, deleted });
 }));
 export default router;

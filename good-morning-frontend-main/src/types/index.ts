@@ -131,7 +131,7 @@ export interface Charge {
     amountPaid: number;
     notes: string;
 }
-export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'Restaurant A · Morning', RESTAURANT_B: 'Restaurant B · Staff afternoon', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);
+export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'UPPER RESTAURANT', RESTAURANT_B: 'LOWER RESTAURANT', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);
 export const paymentMethods: PaymentMethod[] = ['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK', 'OTHER'];
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Blantyre', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 

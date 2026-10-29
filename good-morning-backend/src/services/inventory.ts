@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { check, number } from '../utils/http';
 export type SalesBusiness = 'RESTAURANT_A' | 'RESTAURANT_B' | 'GROCERY';
 export function business(value: unknown): SalesBusiness {
-    check(['RESTAURANT_A', 'RESTAURANT_B', 'GROCERY'].includes(String(value)), 'Choose Restaurant A, Restaurant B, or Grocery.');
+    check(['RESTAURANT_A', 'RESTAURANT_B', 'GROCERY'].includes(String(value)), 'Choose Upper Restaurant, Lower Restaurant, or Grocery.');
     return value as SalesBusiness;
 }
 // Restaurant stock belongs to a service date. Grocery stock carries forward.

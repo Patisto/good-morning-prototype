@@ -18,12 +18,12 @@ const cart = ref<{
 const productEditorOpen = ref(false);
 const editedProduct = ref<Product | undefined>();
 const stock = ref({ productId: '', quantity: 0, notes: '' });
-const calculator = ref({ paid: 0, amount: 0 });
+const calculator = ref({ paid: 0 });
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
-const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - Number(calculator.value.amount || 0)));
 const filtered = computed(() => products.value.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(search.value.toLowerCase())));
 const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
+const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - cartTotal.value));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
 const tabs = computed(() => canManage.value ? ['sales', 'stock', 'configuration'] : ['sales', 'stock']);
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; });
@@ -82,10 +82,10 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           Restaurant
           <select v-model="business" class="input" :disabled="busy">
             <option value="RESTAURANT_A">
-              A · Morning
+              UPPER RESTAURANT
             </option>
             <option value="RESTAURANT_B">
-              B · Staff afternoon
+              LOWER RESTAURANT
             </option>
           </select>
         </label>
@@ -138,7 +138,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
     <template v-if="tab==='sales'">
       <section v-if="section==='grocery'" class="panel flex flex-wrap items-end gap-3">
         <h3 class="w-full font-semibold">Change calculator</h3>
-        <label class="field">Amount due (MWK)<input v-model.number="calculator.amount" class="input" type="number" min="0" step="0.01"></label>
+        <label class="field">Amount due (MWK)<input :value="cartTotal" class="input" type="number" readonly aria-readonly="true"></label>
         <label class="field">Customer paid (MWK)<input v-model.number="calculator.paid" class="input" type="number" min="0" step="0.01"></label>
         <p class="text-lg font-semibold">Change: {{ formatMWK(changeDue) }}</p>
       </section>

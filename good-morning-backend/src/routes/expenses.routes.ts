@@ -15,7 +15,7 @@ router.get('/', route(async (req, res) => {
 router.post('/', route(async (req, res) => {
     const b = req.body;
     check(allowedBusinesses(req.user!.role).includes(b.business), 'You cannot record expenses for this business.', 403);
-    check(b.business !== 'RESTAURANT', 'Choose Restaurant A or B for new expenses.');
+    check(b.business !== 'RESTAURANT', 'Choose Upper Restaurant or Lower Restaurant for new expenses.');
     await transaction(async (db) => {
         if (!await claimRequest(db, b.requestId, req.user!.id, `expense:${b.business}`))
             return;

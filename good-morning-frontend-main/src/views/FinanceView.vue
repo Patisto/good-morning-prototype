@@ -29,9 +29,20 @@ const business = ref(typeof route.query.business === 'string' ? route.query.busi
 const businesses = ref<Business[]>([]), summary = ref<Summary[]>([]), entries = ref<Entry[]>([]);
 const kind = ref('ALL'), expenseOpen = ref(false), paymentOpen = ref(false);
 const totals = computed(() => summary.value.reduce((total, row) => ({ income: total.income + row.income, expenses: total.expenses + row.expenses, count: total.count + row.count }), { income: 0, expenses: 0, count: 0 }));
+const canEraseTransactions = computed(() => auth.canManage('hostel') || auth.canManage('restaurant') || auth.canManage('grocery'));
 function printReport() { window.print(); }
 const visible = computed(() => entries.value.filter(entry => kind.value === 'ALL' || entry.kind === kind.value));
 const expenseBusiness = computed(() => businesses.value.find(b => b === business.value && b !== 'RESTAURANT'));
+async function eraseFilteredTransactions() {
+    const key = prompt('Enter the manager erase key to permanently erase the transactions in the current date and business filter:');
+    if (!key) return;
+    const scope = business.value ? businessName(business.value) : 'all permitted businesses';
+    if (!confirm(`Permanently erase ${totals.value.count} transaction(s) for ${scope} from ${from.value} through ${to.value}? This removes sale receipts, hostel payment receipts, and expenses in this filter.`)) return;
+    await run(async () => {
+        await api.post('/finance/transactions/erase', { key, from: from.value, to: to.value, business: business.value || undefined }, auth.token);
+        await load();
+    });
+}
 async function load() {
     const query = new URLSearchParams({ from: from.value, to: to.value });
     if (business.value)
@@ -159,9 +170,8 @@ onMounted(() => run(load));
     </div>
     <section class="panel space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h3 class="font-semibold">
-          Transactions
-        </h3>
+        <div><h3 class="font-semibold">Transactions</h3><p v-if="canEraseTransactions" class="text-xs text-ink-muted">Erase action follows the selected dates and business.</p></div>
+        <button v-if="canEraseTransactions" type="button" class="btn-secondary text-danger" :disabled="busy || totals.count===0" @click="eraseFilteredTransactions">Erase all filtered transactions</button>
         <label class="field">
           Show
           <select v-model="kind" class="input">
