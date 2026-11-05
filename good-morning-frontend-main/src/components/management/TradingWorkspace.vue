@@ -32,10 +32,10 @@ const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - cartTotal.value));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
-const salePaymentMethods = computed(() => section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT']);
+const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT']);
 const selectedMealCard = computed(() => mealCards.value.find(card => card.id === selectedMealCardId.value));
 async function loadMealCards() {
-    if (section !== 'restaurant') return;
+    if (props.section !== 'restaurant') return;
     mealCards.value = fromApi<MealCard[]>(await api.get(`/restaurant/meal-cards?business=${business.value}`, auth.token));
     if (selectedMealCardId.value && !mealCards.value.some(card => card.id === selectedMealCardId.value)) selectedMealCardId.value = '';
 }
@@ -46,8 +46,8 @@ async function addMealCard() {
         await loadMealCards();
     });
 }
-watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (section === 'restaurant') void loadMealCards(); });
-watch(business, () => { if (section === 'restaurant') void loadMealCards(); }, { immediate: true });
+watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (props.section === 'restaurant') void loadMealCards(); });
+watch(business, () => { if (props.section === 'restaurant') void loadMealCards(); }, { immediate: true });
 watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); await promptNewStock(); } });
 function add(product: Product) {
     const line = cart.value.find(l => l.itemId === product.id);
@@ -59,7 +59,7 @@ function add(product: Product) {
         cart.value.push({ itemId: product.id, quantity: Math.min(1, product.currentStock) });
 }
 watch(selectedMealCard, card => { if (card) chargedTotal.value = card.defaultCharge; });
-async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined }); cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; await load(); if (section === 'restaurant') await loadMealCards(); }); }
+async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined }); cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; await load(); if (props.section === 'restaurant') await loadMealCards(); }); }
 async function receive() { await run(async () => { await save('/stock', { ...stock.value, date: date.value }); stock.value.quantity = 0; stock.value.notes = ''; await load(); }); }
 async function promptNewStock() {
     if (entries.value.length) return;
