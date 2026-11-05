@@ -1,5 +1,5 @@
 export type Role = 'SUPER_MANAGER' | 'OWNER' | 'ADMINISTRATOR' | 'HOSTEL_MANAGER' | 'RESTAURANT_MANAGER' | 'RESTAURANT_CASHIER' | 'GROCERY_MANAGER' | 'GROCERY_CASHIER' | 'ACCOUNTANT' | 'SYSTEM_ADMINISTRATOR';
-export type PaymentMethod = 'CASH' | 'AIRTEL_MONEY' | 'TNM_MPAMBA' | 'BANK' | 'OTHER';
+export type PaymentMethod = 'CASH' | 'AIRTEL_MONEY' | 'TNM_MPAMBA' | 'BANK' | 'OTHER' | 'CREDIT' | 'MEAL_CARD';
 export type SyncStatus = 'SYNCED' | 'PENDING' | 'FAILED';
 export type RoomType = 'SINGLE' | 'DOUBLE';
 export type RoomStatus = 'OCCUPIED' | 'PARTIAL' | 'VACANT';
@@ -129,6 +129,7 @@ export interface Charge {
     month: string;
     expectedAmount: number;
     amountPaid: number;
+    openingBalance: number;
     notes: string;
 }
 export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'UPPER RESTAURANT', RESTAURANT_B: 'LOWER RESTAURANT', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);

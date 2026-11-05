@@ -2,15 +2,18 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import { useTrading } from '@/composables/useTrading';
 import { useAuthStore } from '@/stores/auth';
-import { businessName, formatMWK, paymentMethods, today, type Product, type PaymentMethod, type Sale } from '@/types';
+import { businessName, formatMWK, today, type Product, type PaymentMethod, type Sale } from '@/types';
 import ProductEditorModal from './ProductEditorModal.vue';
-import { api } from '@/lib/api';
+import { api, fromApi } from '@/lib/api';
+import { useRoute } from 'vue-router';
 const props = defineProps<{
     section: 'restaurant' | 'grocery';
 }>();
 const auth = useAuthStore();
+const route = useRoute();
 const { business, date, products, sales, entries, canManage, revenue, busy, error, run, load, save, remove, sell } = useTrading(props.section);
-const tab = ref('sales'), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH');
+const tab = ref(String(route.query.tab || 'sales')), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH');
+watch(() => route.query.tab, value => { tab.value = String(value || 'sales'); });
 const cart = ref<{
     itemId: string;
     quantity: number;
@@ -18,6 +21,10 @@ const cart = ref<{
 const productEditorOpen = ref(false);
 const editedProduct = ref<Product | undefined>();
 const stock = ref({ productId: '', quantity: 0, notes: '' });
+type MealCard = { id: string; customerName: string; phone: string; balance: number; defaultCharge: number; business: string };
+const mealCards = ref<MealCard[]>([]), selectedMealCardId = ref(''), chargedTotal = ref<number | null>(null);
+const mealCardDraft = ref({ customerName: '', phone: '', balance: 0, defaultCharge: 0 });
+const creditCustomer = ref('');
 const calculator = ref({ paid: 0 });
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
 const filtered = computed(() => products.value.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(search.value.toLowerCase())));
@@ -25,8 +32,22 @@ const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - cartTotal.value));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
-const tabs = computed(() => canManage.value ? ['sales', 'stock', 'configuration'] : ['sales', 'stock']);
-watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; });
+const salePaymentMethods = computed(() => section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT']);
+const selectedMealCard = computed(() => mealCards.value.find(card => card.id === selectedMealCardId.value));
+async function loadMealCards() {
+    if (section !== 'restaurant') return;
+    mealCards.value = fromApi<MealCard[]>(await api.get(`/restaurant/meal-cards?business=${business.value}`, auth.token));
+    if (selectedMealCardId.value && !mealCards.value.some(card => card.id === selectedMealCardId.value)) selectedMealCardId.value = '';
+}
+async function addMealCard() {
+    await run(async () => {
+        await api.post(`/restaurant/meal-cards?business=${business.value}`, mealCardDraft.value, auth.token);
+        mealCardDraft.value = { customerName: '', phone: '', balance: 0, defaultCharge: 0 };
+        await loadMealCards();
+    });
+}
+watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (section === 'restaurant') void loadMealCards(); });
+watch(business, () => { if (section === 'restaurant') void loadMealCards(); }, { immediate: true });
 watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); await promptNewStock(); } });
 function add(product: Product) {
     const line = cart.value.find(l => l.itemId === product.id);
@@ -37,7 +58,8 @@ function add(product: Product) {
     else
         cart.value.push({ itemId: product.id, quantity: Math.min(1, product.currentStock) });
 }
-async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value); cart.value = []; await load(); }); }
+watch(selectedMealCard, card => { if (card) chargedTotal.value = card.defaultCharge; });
+async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined }); cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; await load(); if (section === 'restaurant') await loadMealCards(); }); }
 async function receive() { await run(async () => { await save('/stock', { ...stock.value, date: date.value }); stock.value.quantity = 0; stock.value.notes = ''; await load(); }); }
 async function promptNewStock() {
     if (entries.value.length) return;
@@ -130,11 +152,6 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </p>
       </div>
     </div>
-    <nav class="tabs" aria-label="Business workspace">
-      <button v-for="item in tabs" :key="item" :class="tab===item ? 'btn' : 'btn-secondary'" :disabled="busy" @click="tab=item">
-        {{ item.charAt(0).toUpperCase()+item.slice(1) }}
-      </button>
-    </nav>
     <template v-if="tab==='sales'">
       <section v-if="section==='grocery'" class="panel flex flex-wrap items-end gap-3">
         <h3 class="w-full font-semibold">Change calculator</h3>
@@ -187,15 +204,30 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           <label class="field">
             Payment method
             <select v-model="paymentMethod" class="input">
-              <option v-for="m in paymentMethods" :key="m" :value="m">
-                {{ m.replaceAll('_',' ') }}
+              <option v-for="m in salePaymentMethods" :key="m" :value="m">
+                {{ m === 'CREDIT' ? 'Credit' : m === 'MEAL_CARD' ? 'Meal card' : m.replaceAll('_',' ') }}
               </option>
             </select>
           </label>
+          <label v-if="paymentMethod === 'CREDIT'" class="field">Customer name for credit
+            <input v-model="creditCustomer" class="input" required maxlength="500" placeholder="Who will pay later?">
+          </label>
+          <template v-if="paymentMethod === 'MEAL_CARD'">
+            <label class="field">Meal card customer
+              <select v-model="selectedMealCardId" class="input" required>
+                <option value="">Select customer</option>
+                <option v-for="card in mealCards" :key="card.id" :value="card.id">{{ card.customerName }} · balance {{ formatMWK(card.balance) }}</option>
+              </select>
+            </label>
+            <label class="field">Agreed meal charge (MWK)
+              <input v-model.number="chargedTotal" class="input" type="number" min="0.01" step="0.01" required>
+            </label>
+            <p v-if="selectedMealCard" class="text-xs text-ink-muted">Default {{ formatMWK(selectedMealCard.defaultCharge) }} · remaining balance {{ formatMWK(selectedMealCard.balance) }}</p>
+          </template>
           <p class="text-xl font-semibold">
-            {{ formatMWK(cartTotal) }}
+            {{ formatMWK(paymentMethod === 'MEAL_CARD' && chargedTotal !== null ? chargedTotal : cartTotal) }}
           </p>
-          <button class="btn" :disabled="busy || !cart.length">
+          <button class="btn" :disabled="busy || !cart.length || (paymentMethod === 'MEAL_CARD' && (!selectedMealCardId || !chargedTotal)) || (paymentMethod === 'CREDIT' && !creditCustomer.trim())">
             Record sale
           </button>
         </form>
@@ -338,6 +370,21 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           No stock received for this date.
         </p>
         </div>
+      </section>
+    </template>
+    <template v-else-if="tab==='meal-cards' && section==='restaurant'">
+      <section class="panel space-y-4">
+        <div><h3 class="font-semibold">Restaurant meal cards</h3><p class="text-sm text-ink-muted">Register customers who pay in advance and set their usual meal charge. Their prepaid balance is reduced when they use a card.</p></div>
+        <form v-if="canManage" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="addMealCard">
+          <label class="field">Customer name<input v-model="mealCardDraft.customerName" class="input" required maxlength="500"></label>
+          <label class="field">Phone<input v-model="mealCardDraft.phone" class="input" maxlength="100"></label>
+          <label class="field">Amount paid in advance (MWK)<input v-model.number="mealCardDraft.balance" class="input" type="number" min="0" step="0.01" required></label>
+          <label class="field">Default meal charge (MWK)<input v-model.number="mealCardDraft.defaultCharge" class="input" type="number" min="0" step="0.01" required></label>
+          <button class="btn sm:col-span-2 lg:col-span-4" :disabled="busy">Add prepaid customer</button>
+        </form>
+        <p v-else class="text-sm text-ink-muted">Ask a manager to register meal card customers.</p>
+        <div class="overflow-x-auto"><table class="data-table"><thead><tr><th>Customer</th><th>Phone</th><th>Default meal charge</th><th>Prepaid balance</th></tr></thead><tbody><tr v-for="card in mealCards" :key="card.id"><td>{{ card.customerName }}</td><td>{{ card.phone || '—' }}</td><td>{{ formatMWK(card.defaultCharge) }}</td><td>{{ formatMWK(card.balance) }}</td></tr></tbody></table></div>
+        <p v-if="!mealCards.length" class="text-sm text-ink-muted">No meal card customers for this restaurant.</p>
       </section>
     </template>
     <template v-else-if="tab==='configuration' && canManage">

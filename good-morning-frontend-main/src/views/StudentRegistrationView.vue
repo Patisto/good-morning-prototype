@@ -1,37 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { onMounted, ref } from 'vue';
 import { api, fromApi } from '@/lib/api';
 import logo from '@/goodmorniglogo.png';
 import { useTask } from '@/composables/useTask';
 import { today } from '@/types';
-const canvas = ref<HTMLCanvasElement | null>(null), signed = ref(false), submitting = ref(false), success = ref(false);
-const agreementOpen = ref(false), agreementRead = ref(false);
-const form = ref({ firstName: '', middleName: '', lastName: '', gender: '', dateOfBirth: '', phone: '', altPhone: '', email: '', homeDistrict: '', homeAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelationship: '', institution: '', programme: '', faculty: '', department: '', yearOfStudy: null as number | null, regNumber: '', academicYear: '', preferredRoomId: '', moveInDate: today(), deposit: 0 });
+const submitting = ref(false), success = ref(false), error = ref('');
+const form = ref({ bookingCode: '', firstName: '', middleName: '', lastName: '', gender: '', dateOfBirth: '', phone: '', altPhone: '', email: '', homeDistrict: '', homeAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelationship: '', institution: '', programme: '', faculty: '', department: '', yearOfStudy: null as number | null, regNumber: '', academicYear: '', preferredRoomId: '', moveInDate: today() });
 const rooms = ref<{id:string;label?:string;identifier:string;housingUnit:string;capacity:number;occupants:number;monthlyPrice?:number}[]>([]);
-const { busy, error, run } = useTask();
-const availableRooms = computed(() => rooms.value.filter(room => room.occupants < room.capacity));
-const chosenRoom = computed(() => rooms.value.find(room => room.id === form.value.preferredRoomId));
-watch(() => [form.value.firstName, form.value.middleName, form.value.lastName, form.value.phone, form.value.institution, form.value.programme, form.value.preferredRoomId, form.value.moveInDate, form.value.deposit], () => { if (signed.value) clearSignature(); });
+const { busy, run } = useTask();
+const availableRooms = () => rooms.value.filter(room => room.occupants < room.capacity);
 onMounted(() => run(async () => { rooms.value = fromApi<{rooms:typeof rooms.value}>(await api.get('/hostel/registration/options')).rooms; }));
-function point(event: PointerEvent) { const c = canvas.value!, rect = c.getBoundingClientRect(); return { x:(event.clientX-rect.left)*c.width/rect.width, y:(event.clientY-rect.top)*c.height/rect.height }; }
-function start(event: PointerEvent) { const c=canvas.value!,ctx=c.getContext('2d')!; c.setPointerCapture(event.pointerId); const p=point(event); ctx.beginPath(); ctx.moveTo(p.x,p.y); signed.value=true; }
-function draw(event: PointerEvent) { if (!signed.value) return; const c=canvas.value!,ctx=c.getContext('2d')!,p=point(event); ctx.lineWidth=3;ctx.lineCap='round';ctx.strokeStyle='#17251d';ctx.lineTo(p.x,p.y);ctx.stroke(); }
-function clearSignature() { const c=canvas.value!; c.getContext('2d')!.clearRect(0,0,c.width,c.height); signed.value=false; agreementRead.value=false; }
-function toggleAgreement() { if (agreementOpen.value && signed.value) clearSignature(); agreementOpen.value = !agreementOpen.value; }
-function downloadAgreement() {
-    const esc = (value: unknown) => String(value ?? '—').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
-    const signature = signed.value ? `<img style="height:80px;max-width:260px;object-fit:contain" src="${esc(canvas.value!.toDataURL('image/png'))}" alt="Student signature">` : '<div style="height:80px"></div>';
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Good Morning Accommodation Agreement</title><style>body{font:15px Arial;max-width:800px;margin:36px auto;line-height:1.55;color:#1b211c}header{display:flex;align-items:center;gap:18px;justify-content:center}header img{width:76px;height:76px;object-fit:contain}h1{color:#1f5b4c}table{width:100%;border-collapse:collapse}td{border:1px solid #ddd;padding:9px}td:first-child{font-weight:bold;width:38%}.signatures{display:flex;justify-content:space-between;gap:30px;margin-top:70px}.signatures>div{width:48%;border-top:1px solid #222;min-height:105px;padding-top:8px}</style></head><body><header><img src="${logo}" alt="Good Morning logo"><h1>Accommodation Agreement</h1></header><p>This agreement records the proposed accommodation between Good Morning and the student below. The room and move-in details are subject to confirmation by a hostel manager.</p><table><tr><td>Student</td><td>${esc([form.value.firstName,form.value.middleName,form.value.lastName].filter(Boolean).join(' '))}</td></tr><tr><td>Phone</td><td>${esc(form.value.phone)}</td></tr><tr><td>Institution / programme</td><td>${esc(form.value.institution)} / ${esc(form.value.programme)}</td></tr><tr><td>Preferred room</td><td>${esc(chosenRoom.value ? `${chosenRoom.value.housingUnit} · ${chosenRoom.value.label || chosenRoom.value.identifier}` : 'No preference')}</td></tr><tr><td>Preferred move-in date</td><td>${esc(form.value.moveInDate)}</td></tr><tr><td>Deposit offered</td><td>MWK ${esc(form.value.deposit)}</td></tr>${chosenRoom.value?.monthlyPrice !== undefined ? `<tr><td>Monthly rent</td><td>MWK ${esc(chosenRoom.value.monthlyPrice)}</td></tr>` : ''}</table><h2>Terms</h2><ol><li>The student agrees to pay the accommodation amount set for the confirmed room and keep the room and shared areas clean.</li><li>The room may not be transferred, sublet, or occupied beyond its approved capacity without written approval.</li><li>Good Morning may enforce reasonable hostel rules to protect residents, property, and safety.</li><li>This agreement is subject to the applicable Good Morning accommodation policies and final room confirmation.</li></ol><p>The student confirms they have read and agree to these terms.</p><div class="signatures"><div>${signature}Student signature and date</div><div style="padding-top:85px">Owner / Good Morning representative signature and date</div></div></body></html>`;
-    const url=URL.createObjectURL(new Blob([html],{type:'text/html;charset=utf-8'})); const a=document.createElement('a'); a.href=url; a.download=`good-morning-accommodation-agreement-${form.value.lastName || 'student'}.html`; a.click(); URL.revokeObjectURL(url);
+async function submit() {
+    submitting.value = true; error.value = '';
+    try { await api.post('/hostel/registration', form.value); success.value = true; }
+    catch (e) { error.value = e instanceof Error ? e.message : 'Could not submit registration.'; }
+    finally { submitting.value = false; }
 }
-async function submit() { if (!signed.value || !agreementRead.value || !agreementOpen.value) return; submitting.value=true; try { await api.post('/hostel/registration',{...form.value,agreementRead:true,studentSignature:canvas.value!.toDataURL('image/png')}); success.value=true; } catch (e) { error.value=e instanceof Error?e.message:'Could not submit registration.'; } finally { submitting.value=false; } }
 </script>
 <template>
   <main class="min-h-screen bg-paper px-4 py-8"><section class="mx-auto max-w-3xl space-y-5 rounded-xl border border-line bg-surface p-5 shadow-sm sm:p-8">
-    <header class="flex items-center gap-4"><img :src="logo" alt="Good Morning logo" class="h-16 w-16 object-contain"><div><h1 class="text-2xl font-bold text-primary">Student accommodation registration</h1><p class="text-sm text-ink-muted">Complete this form and sign electronically. Your application will be sent to Good Morning for review.</p></div></header>
-    <p v-if="success" class="rounded bg-primary-light p-4 font-medium">Application submitted successfully. Good Morning will contact you using the details provided.</p>
+    <header class="flex items-center gap-4"><img :src="logo" alt="Good Morning logo" class="h-16 w-16 object-contain"><div><h1 class="text-2xl font-bold text-primary">Student registration</h1><p class="text-sm text-ink-muted">Share your details so the hostel manager can set up your tenant profile and assign a room.</p></div></header>
+    <p v-if="success" class="rounded bg-primary-light p-4 font-medium">Your details have been submitted. The hostel manager will review your profile and contact you about your room.</p>
     <form v-else class="space-y-5" @submit.prevent="submit">
       <p v-if="error" class="error" role="alert">{{ error }}</p>
+      <fieldset class="rounded border border-primary bg-primary-light p-4"><legend class="px-1 font-semibold">Booking payment</legend><p class="mb-3 text-sm">Enter the one-use booking code sent to your email after payment was confirmed.</p><label class="field">Booking code<input v-model.trim="form.bookingCode" class="input uppercase" placeholder="GM-1234ABCD-5678EF90" required autocomplete="one-time-code"></label></fieldset>
       <fieldset class="grid gap-3 sm:grid-cols-2"><legend class="mb-3 font-semibold">Personal details</legend>
         <input v-model="form.firstName" class="input" placeholder="First name *" required><input v-model="form.middleName" class="input" placeholder="Middle name">
         <input v-model="form.lastName" class="input" placeholder="Last name *" required><input v-model="form.phone" class="input" placeholder="Phone *" required>
@@ -40,26 +32,18 @@ async function submit() { if (!signed.value || !agreementRead.value || !agreemen
         <input v-model="form.homeDistrict" class="input" placeholder="Home district"><input v-model="form.homeAddress" class="input" placeholder="Home address">
         <input v-model="form.emergencyContactName" class="input" placeholder="Emergency contact name"><input v-model="form.emergencyContactPhone" class="input" placeholder="Emergency contact phone">
         <input v-model="form.emergencyContactRelationship" class="input sm:col-span-2" placeholder="Emergency contact relationship">
-        <input v-model="form.institution" class="input" placeholder="Institution">
-        <input v-model="form.programme" class="input" placeholder="Programme"><input v-model="form.faculty" class="input" placeholder="Faculty / school">
-        <input v-model="form.department" class="input" placeholder="Department"><input v-model.number="form.yearOfStudy" class="input" type="number" min="1" placeholder="Year of study">
-        <input v-model="form.regNumber" class="input" placeholder="Student registration number"><input v-model="form.academicYear" class="input" placeholder="Academic year">
       </fieldset>
-      <fieldset class="grid gap-3 sm:grid-cols-2"><legend class="mb-3 font-semibold">Accommodation preferences</legend>
-        <label class="field">Preferred room (subject to availability)<select v-model="form.preferredRoomId" class="input"><option value="">No preference</option><option v-for="r in availableRooms" :key="r.id" :value="r.id">{{ r.housingUnit }} · {{ r.label || r.identifier }} ({{ r.capacity-r.occupants }} beds)</option></select></label>
+      <fieldset class="grid gap-3 sm:grid-cols-2"><legend class="mb-3 font-semibold">School details</legend>
+        <input v-model="form.institution" class="input" placeholder="Institution"><input v-model="form.programme" class="input" placeholder="Programme">
+        <input v-model="form.faculty" class="input" placeholder="Faculty / school"><input v-model="form.department" class="input" placeholder="Department">
+        <input v-model.number="form.yearOfStudy" class="input" type="number" min="1" placeholder="Year of study"><input v-model="form.regNumber" class="input" placeholder="Student registration number"><input v-model="form.academicYear" class="input" placeholder="Academic year">
+      </fieldset>
+      <fieldset class="grid gap-3 sm:grid-cols-2"><legend class="mb-3 font-semibold">Room preference</legend>
+        <label class="field">Preferred room (optional)<select v-model="form.preferredRoomId" class="input"><option value="">No preference</option><option v-for="room in availableRooms()" :key="room.id" :value="room.id">{{ room.housingUnit }} · {{ room.label || room.identifier }} ({{ room.capacity-room.occupants }} beds)</option></select></label>
         <label class="field">Preferred move-in date<input v-model="form.moveInDate" class="input" type="date" :max="today()" required></label>
-        <label class="field">Deposit amount offered (MWK)<input v-model.number="form.deposit" class="input" type="number" min="0" step="0.01"></label>
       </fieldset>
-      <section class="space-y-3 rounded border border-line p-4">
-        <div><h2 class="font-semibold">Accommodation agreement</h2><p class="text-sm text-ink-muted">Open and review the agreement, sign it online, then confirm that you have read it.</p></div>
-        <div class="flex flex-wrap gap-2"><button type="button" class="btn-secondary" @click="toggleAgreement">{{ agreementOpen?'Close agreement':'Open agreement to review and sign' }}</button><button type="button" class="btn-secondary" @click="downloadAgreement">Download agreement</button></div>
-        <div v-if="agreementOpen" class="space-y-4 rounded bg-paper p-4">
-          <article class="max-h-80 space-y-3 overflow-y-auto rounded border border-line bg-surface p-4"><header class="flex items-center gap-3"><img :src="logo" alt="Good Morning logo" class="h-12 w-12 object-contain"><h3 class="text-lg font-semibold text-primary">Good Morning Accommodation Agreement</h3></header><p>This agreement records the proposed accommodation between Good Morning and the student below. The room and move-in details are subject to confirmation by a hostel manager.</p><dl class="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2"><dt class="font-medium">Student</dt><dd>{{ form.firstName }} {{ form.middleName }} {{ form.lastName }}</dd><dt class="font-medium">Phone</dt><dd>{{ form.phone }}</dd><dt class="font-medium">Institution / programme</dt><dd>{{ form.institution || '—' }} / {{ form.programme || '—' }}</dd><dt class="font-medium">Preferred room</dt><dd>{{ chosenRoom ? `${chosenRoom.housingUnit} · ${chosenRoom.label || chosenRoom.identifier}` : 'No preference' }}</dd><dt class="font-medium">Move-in date</dt><dd>{{ form.moveInDate }}</dd><dt class="font-medium">Monthly rent</dt><dd>MWK {{ chosenRoom?.monthlyPrice ?? 'Set after room review' }}</dd><dt class="font-medium">Deposit offered</dt><dd>MWK {{ form.deposit }}</dd></dl><h4 class="font-semibold">Terms</h4><ol class="list-decimal space-y-2 pl-5 text-sm"><li>The student agrees to pay the accommodation amount set for the confirmed room and keep the room and shared areas clean.</li><li>The room may not be transferred, sublet, or occupied beyond its approved capacity without written approval.</li><li>Good Morning may enforce reasonable hostel rules to protect residents, property, and safety.</li><li>This agreement is subject to the applicable Good Morning accommodation policies and final room confirmation.</li></ol><div class="grid gap-6 pt-5 text-sm sm:grid-cols-2"><div class="min-h-20 border-t border-line pt-2">Student signature and date (signed below)</div><div class="min-h-20 border-t border-line pt-2">Owner / Good Morning representative signature and date (after review)</div></div></article>
-          <div class="space-y-2"><label class="font-semibold">Student signature *</label><canvas ref="canvas" width="900" height="220" class="block h-36 w-full touch-none rounded border border-line bg-white" @pointerdown="start" @pointermove="draw"></canvas><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-ink-muted">Sign using your finger, stylus, or mouse.</p><button type="button" class="btn-secondary" @click="clearSignature">Clear signature</button></div></div>
-          <label class="flex items-start gap-2 text-sm"><input v-model="agreementRead" type="checkbox" class="mt-1" :disabled="!signed"><span>I have read and agree to the accommodation agreement above.</span></label>
-        </div>
-      </section>
-      <div class="flex flex-wrap gap-3"><button class="btn" :disabled="busy||submitting||!signed||!agreementRead||!agreementOpen">{{ submitting?'Submitting…':'Submit signed registration' }}</button><router-link class="btn-secondary" to="/login">Staff login</router-link></div>
+      <p class="text-sm text-ink-muted">This is a registration request. Room assignment and rent are confirmed by the hostel manager. The accommodation agreement will be signed on a physical form.</p>
+      <div class="flex flex-wrap gap-3"><button class="btn" :disabled="busy||submitting">{{ submitting ? 'Submitting…' : 'Submit registration' }}</button><router-link class="btn-secondary" to="/login">Staff login</router-link></div>
     </form>
   </section></main>
 </template>

@@ -23,6 +23,7 @@ const amount = ref<number | null>(null), paymentDate = ref(today()), paymentMeth
 const quote = ref<{
     expectedAmount: number;
     amountPaid: number;
+    openingBalance: number;
 } | null>(null), quoteLoading = ref(false), quoteError = ref('');
 const selectedTenant = computed(() => hostel.tenants.find(t => t.id === tenantId.value));
 const tenantMatches = computed(() => {
@@ -46,9 +47,13 @@ async function loadQuote() {
         const result = fromApi<{
             expectedAmount: number;
             amountPaid: number;
+            openingBalance: number;
         }>(await api.get(`/hostel/rent-quote?tenantId=${encodeURIComponent(tenantId.value)}&month=${encodeURIComponent(month.value)}`, auth.token));
-        if (request === version)
+        if (request === version) {
             quote.value = result;
+            const due = result.expectedAmount - result.openingBalance - result.amountPaid;
+            amount.value = due > 0 ? Math.round(due * 100) / 100 : null;
+        }
     }
     catch (cause) {
         if (request === version)
@@ -110,7 +115,7 @@ async function receive() {
             </button>
           </p>
           <p v-else-if="quote">
-            Rent: {{ formatMWK(quote.expectedAmount) }} · Paid: {{ formatMWK(quote.amountPaid) }} · {{ quote.amountPaid>quote.expectedAmount ? 'Credit' : 'Balance' }}: {{ formatMWK(Math.abs(quote.expectedAmount-quote.amountPaid)) }}
+            Rent: {{ formatMWK(quote.expectedAmount) }} · {{ quote.openingBalance < 0 ? 'Opening arrears' : quote.openingBalance > 0 ? 'Credit carried in' : 'Opening balance' }}: {{ formatMWK(Math.abs(quote.openingBalance)) }} · Paid this month: {{ formatMWK(quote.amountPaid) }} · {{ quote.expectedAmount-quote.openingBalance-quote.amountPaid > 0 ? 'Still due' : quote.expectedAmount-quote.openingBalance-quote.amountPaid < 0 ? 'Credit' : 'Paid' }}: {{ formatMWK(Math.abs(quote.expectedAmount-quote.openingBalance-quote.amountPaid)) }}
           </p>
           <p v-else>
             Select a tenant and month to see the rent balance.

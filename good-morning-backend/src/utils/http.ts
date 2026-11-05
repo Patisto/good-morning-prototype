@@ -28,7 +28,7 @@ export function month(value: unknown): string {
     return value;
 }
 export function method(value: unknown): string {
-    check(['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK', 'OTHER'].includes(String(value)), 'Invalid payment method.');
+    check(['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK', 'OTHER', 'CREDIT', 'MEAL_CARD'].includes(String(value)), 'Invalid payment method.');
     return String(value);
 }
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Blantyre', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

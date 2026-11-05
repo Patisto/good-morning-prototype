@@ -5,6 +5,8 @@ const router = createRouter({
     routes: [
         { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
         { path: '/student-registration', name: 'student-registration', component: () => import('@/views/StudentRegistrationView.vue'), meta: { public: true } },
+        { path: '/hostel-booking/:token', name: 'hostel-booking', component: () => import('@/views/hostel/BookingCheckoutView.vue'), meta: { public: true } },
+        { path: '/hostel-booking-result', name: 'hostel-booking-result', component: () => import('@/views/hostel/BookingResultView.vue'), meta: { public: true } },
         { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
         { path: '/hostel', name: 'hostel', component: () => import('@/views/hostel/HostelView.vue') },
         { path: '/restaurant', name: 'restaurant', component: () => import('@/views/restaurant/RestaurantView.vue') },

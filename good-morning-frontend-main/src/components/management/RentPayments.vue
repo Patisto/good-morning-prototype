@@ -15,7 +15,9 @@ const receipts = ref<{
     paymentDate: string;
     paymentMethod: string;
 }[]>([]);
-const total = computed(() => hostel.charges.reduce((sum, charge) => sum + Math.max(0, charge.expectedAmount - charge.amountPaid), 0));
+const netBalance = (charge: Charge) => charge.openingBalance + charge.amountPaid - charge.expectedAmount;
+const due = (charge: Charge) => Math.max(0, -netBalance(charge));
+const total = computed(() => hostel.charges.reduce((sum, charge) => sum + due(charge), 0));
 const tenantName = (id: string) => { const tenant = hostel.tenants.find(t => t.id === id); return tenant ? `${tenant.firstName} ${tenant.lastName}` : id; };
 async function openHistory(charge: Charge) {
     history.value = charge;
@@ -43,7 +45,7 @@ async function saveNotes() {
         <input v-model="hostel.month" class="input" type="month" :disabled="busy" @change="run(()=>hostel.hydrate())" />
       </label>
       <p>
-        Outstanding for this month:
+      Rent still owing:
         <strong>
           {{ formatMWK(total) }}
         </strong>
@@ -58,7 +60,7 @@ async function saveNotes() {
       </div>
     </div>
     <p class="text-sm text-ink-muted">
-      Receive a payment at any time by selecting a tenant and rent month. Generate charges to list all tenants owing rent for a month.
+      Generate a month to set each tenant’s rent from their room rate. Unpaid balances carry forward; overpayments become credit and reduce later rent.
     </p>
     <div class="overflow-x-auto">
       <table class="data-table">
@@ -74,7 +76,10 @@ async function saveNotes() {
               Paid
             </th>
             <th>
-              Balance / credit
+              Opening balance
+            </th>
+            <th>
+              Due / credit
             </th>
             <th>
               Notes
@@ -95,9 +100,8 @@ async function saveNotes() {
             <td>
               {{ formatMWK(charge.amountPaid) }}
             </td>
-            <td>
-              {{ formatMWK(Math.abs(charge.expectedAmount-charge.amountPaid)) }} {{ charge.amountPaid>charge.expectedAmount ? 'credit' : charge.amountPaid===charge.expectedAmount ? 'paid' : 'due' }}
-            </td>
+            <td>{{ formatMWK(Math.abs(charge.openingBalance)) }} {{ charge.openingBalance > 0 ? 'credit' : charge.openingBalance < 0 ? 'owed' : '—' }}</td>
+            <td>{{ formatMWK(Math.abs(netBalance(charge))) }} {{ netBalance(charge) < 0 ? 'due' : netBalance(charge) > 0 ? 'credit' : 'paid' }}</td>
             <td>
               {{ charge.notes || '—' }}
             </td>
