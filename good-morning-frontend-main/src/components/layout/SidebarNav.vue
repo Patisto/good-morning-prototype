@@ -13,18 +13,13 @@ defineEmits<{
     ];
 }>();
 type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'finance' | 'users';
-const links: {
-    to: string;
-    label: string;
-    section: NavSection | null;
-}[] = [
-    { to: '/', label: 'Dashboard', section: null },
-    { to: '/hostel', label: 'Hostel', section: 'hostel' },
-    { to: '/restaurant', label: 'Restaurant', section: 'restaurant' },
-    { to: '/grocery', label: 'Grocery', section: 'grocery' },
-    { to: '/finance', label: 'Finance', section: 'finance' },
-    { to: '/team', label: 'Team & roles', section: 'users' },
-];
+const sectionTitle = computed(() => ({
+    hostel: 'Hostel',
+    restaurant: 'Restaurant',
+    grocery: 'Grocery',
+    finance: 'Finance',
+    users: 'Team & roles',
+}[String(route.name ?? '') as NavSection] ?? 'Section'));
 const currentSubsections = computed(() => {
     if (route.path === '/hostel') return [{ label: 'Rooms', tab: 'rooms' }, { label: 'Tenants', tab: 'tenants' }, ...(auth.canManage('hostel') ? [{ label: 'Registrations', tab: 'registrations' }, { label: 'Bookings', tab: 'bookings' }] : []), { label: 'Monthly rent', tab: 'payments' }, ...(auth.canManage('hostel') ? [{ label: 'Room setup', tab: 'configuration' }] : [])];
     if (route.path === '/restaurant' || route.path === '/grocery') {
@@ -67,20 +62,14 @@ const currentSubsections = computed(() => {
       </button>
     </div>
     <ul class="flex-1 space-y-1 px-3">
-      <li v-for="link in links" :key="link.to">
-        <router-link
-          v-if="!link.section || auth.canSee(link.section)"
-          :to="link.to"
-          class="block rounded px-3 py-2 text-sm font-medium text-ink-muted hover:bg-primary-light hover:text-primary-dark"
-          active-class="!bg-primary !text-white"
-          @click="$emit('close')"
-        >
-          {{ link.label }}
+      <li>
+        <router-link to="/" class="mb-3 block rounded px-3 py-2 text-sm font-medium text-primary-dark hover:bg-primary-light" @click="$emit('close')">
+          ← Back to sections
         </router-link>
       </li>
-      <li v-if="currentSubsections.length" class="ml-3 mt-2 space-y-1 border-l border-line pl-3">
-        <p class="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ route.name }}</p>
-        <router-link v-for="item in currentSubsections" :key="item.tab" :to="{ path: route.path, query: { ...route.query, tab: item.tab } }" class="block rounded px-3 py-2 text-sm text-ink-muted hover:bg-primary-light hover:text-primary-dark" :class="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? '!bg-primary-light !font-semibold !text-primary-dark' : ''" @click="$emit('close')">
+      <li class="border-t border-line px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ sectionTitle }}</li>
+      <li v-for="item in currentSubsections" :key="item.tab">
+        <router-link :to="{ path: route.path, query: { ...route.query, tab: item.tab } }" class="block rounded px-3 py-2 text-sm text-ink-muted hover:bg-primary-light hover:text-primary-dark" :class="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? '!bg-primary-light !font-semibold !text-primary-dark' : ''" @click="$emit('close')">
           {{ item.label }}
         </router-link>
       </li>
