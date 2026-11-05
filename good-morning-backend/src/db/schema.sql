@@ -107,6 +107,8 @@ ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS deposit numeric(12,2) 
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'PENDING';
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
 ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS agreement_status text NOT NULL DEFAULT 'PENDING';
+ALTER TABLE student_applications ALTER COLUMN student_signature DROP NOT NULL;
+ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS booking_id uuid;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
@@ -176,6 +178,30 @@ CREATE TABLE IF NOT EXISTS sales (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS restaurant_meal_cards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_name text NOT NULL,
+  phone text NOT NULL DEFAULT '',
+  balance numeric(12,2) NOT NULL DEFAULT 0,
+  default_charge numeric(12,2) NOT NULL DEFAULT 0,
+  business text NOT NULL CHECK (business IN ('RESTAURANT_A','RESTAURANT_B')),
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE sales DROP CONSTRAINT IF EXISTS sales_payment_method_check;
+ALTER TABLE sales ADD CONSTRAINT sales_payment_method_check CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','CREDIT','MEAL_CARD'));
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS meal_card_id uuid REFERENCES restaurant_meal_cards(id);
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS credit_customer text;
+CREATE TABLE IF NOT EXISTS restaurant_meal_card_funding (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meal_card_id uuid NOT NULL REFERENCES restaurant_meal_cards(id),
+  business text NOT NULL CHECK (business IN ('RESTAURANT_A','RESTAURANT_B')),
+  amount numeric(12,2) NOT NULL,
+  date date NOT NULL,
+  recorded_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS sale_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sale_id uuid NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
@@ -234,9 +260,11 @@ CREATE TABLE IF NOT EXISTS rent_charges (
   tenant_id uuid NOT NULL REFERENCES tenants(id),
   month text NOT NULL CHECK (month ~ '^\d{4}-(0[1-9]|1[0-2])$'),
   expected_amount numeric(12,2) NOT NULL CHECK (expected_amount >= 0),
+  opening_balance numeric(12,2) NOT NULL DEFAULT 0,
   notes text NOT NULL DEFAULT '',
   UNIQUE(tenant_id,month)
 );
+ALTER TABLE rent_charges ADD COLUMN IF NOT EXISTS opening_balance numeric(12,2) NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS rent_receipts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   charge_id uuid NOT NULL REFERENCES rent_charges(id),
@@ -247,6 +275,36 @@ CREATE TABLE IF NOT EXISTS rent_receipts (
   legacy_payment_id uuid UNIQUE REFERENCES hostel_payments(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS hostel_booking_offers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token text NOT NULL UNIQUE,
+  title text NOT NULL DEFAULT 'Hostel booking payment',
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  room_id text REFERENCES rooms(id),
+  active boolean NOT NULL DEFAULT true,
+  expires_at timestamptz,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS hostel_bookings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  offer_id uuid NOT NULL REFERENCES hostel_booking_offers(id),
+  email text NOT NULL,
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  tx_ref text NOT NULL UNIQUE,
+  checkout_url text NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PAID','USED','FAILED')),
+  booking_code text UNIQUE,
+  paid_at timestamptz,
+  code_email_claimed_at timestamptz,
+  code_email_sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='student_applications_booking_fk') THEN
+    ALTER TABLE student_applications ADD CONSTRAINT student_applications_booking_fk FOREIGN KEY (booking_id) REFERENCES hostel_bookings(id);
+  END IF;
+END $$;
 -- Preserve recognized legacy monthly balances and receipts. Unrecognized labels
 -- remain in hostel_payments for manual reconciliation; nothing is deleted.
 INSERT INTO rent_charges(tenant_id,month,expected_amount)

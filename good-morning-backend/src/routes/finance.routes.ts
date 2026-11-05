@@ -17,14 +17,18 @@ router.get('/', route(async (req, res) => {
         SELECT p.id,'HOSTEL'::text AS business,p.payment_date AS date,'INCOME'::text AS kind,p.amount,
             t.first_name || ' ' || t.last_name || ' · Rent ' || c.month AS description,p.payment_method,''::text AS notes,p.created_at
         FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id JOIN tenants t ON t.id=c.tenant_id
-        UNION ALL SELECT s.id,s.business,s.date,'INCOME',s.total,'Sale · ' || COALESCE(s.cashier,'Unknown cashier'),s.payment_method,'',s.created_at
-        FROM sales s WHERE s.status='COMPLETED'
+        UNION ALL SELECT s.id,s.business,s.date,CASE WHEN s.payment_method='CREDIT' THEN 'CREDIT' ELSE 'INCOME' END,s.total,'Sale · ' || COALESCE(s.credit_customer || ' · ', '') || COALESCE(s.cashier,'Unknown cashier'),s.payment_method,'',s.created_at
+        FROM sales s WHERE s.status='COMPLETED' AND s.payment_method<>'MEAL_CARD'
+        UNION ALL SELECT f.id,f.business,f.date,'INCOME',f.amount,'Meal card prepaid · ' || c.customer_name,'MEAL_CARD','',f.created_at
+        FROM restaurant_meal_card_funding f JOIN restaurant_meal_cards c ON c.id=f.meal_card_id
+        UNION ALL SELECT b.id,'HOSTEL'::text,b.paid_at::date,'INCOME',b.amount,'Hostel booking · ' || b.email,'PAYCHANGU'::text,''::text,b.paid_at
+        FROM hostel_bookings b WHERE b.status IN ('PAID','USED') AND b.paid_at IS NOT NULL
         UNION ALL SELECT e.id,e.business,e.date,'EXPENSE',e.amount,e.description,e.payment_method,COALESCE(e.notes,''),e.created_at FROM expenses e
     )`;
     const args = [scope, from, to];
     const [summary, entries] = await Promise.all([
         pool.query(`${ledger} SELECT business,COALESCE(SUM(amount) FILTER (WHERE kind='INCOME'),0) AS income,
-            COALESCE(SUM(amount) FILTER (WHERE kind='EXPENSE'),0) AS expenses,COUNT(*)::int AS count
+            COALESCE(SUM(amount) FILTER (WHERE kind='EXPENSE'),0) AS expenses,COALESCE(SUM(amount) FILTER (WHERE kind='CREDIT'),0) AS credit,COUNT(*)::int AS count
             FROM ledger WHERE business=ANY($1::text[]) AND date BETWEEN $2 AND $3 GROUP BY business`, args),
         pool.query(`${ledger} SELECT * FROM ledger WHERE business=ANY($1::text[]) AND date BETWEEN $2 AND $3
             ORDER BY date DESC,created_at DESC,id DESC LIMIT 200`, args),
@@ -44,6 +48,9 @@ router.post('/transactions/erase', route(async (req, res) => {
     check(!selected || businesses.includes(selected), 'You cannot erase transactions for this business.', 403);
     const scope = selected ? [selected] : businesses;
     const deleted = await transaction(async db => {
+        await db.query(`UPDATE restaurant_meal_cards c SET balance=c.balance+sales.amount FROM (
+            SELECT meal_card_id,SUM(total) AS amount FROM sales WHERE payment_method='MEAL_CARD' AND meal_card_id IS NOT NULL AND business=ANY($1::text[]) AND date BETWEEN $2 AND $3 GROUP BY meal_card_id
+        ) sales WHERE c.id=sales.meal_card_id`, [scope, from, to]);
         const sales = await db.query("DELETE FROM sales WHERE status='COMPLETED' AND business=ANY($1::text[]) AND date BETWEEN $2 AND $3", [scope, from, to]);
         const expenses = await db.query('DELETE FROM expenses WHERE business=ANY($1::text[]) AND date BETWEEN $2 AND $3', [scope, from, to]);
         let hostelReceiptCount = 0;

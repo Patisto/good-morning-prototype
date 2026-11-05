@@ -30,7 +30,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
 // Keep the same request ID when a network failure leaves the outcome unknown.
 const pendingRequests = new Map<string, string>();
 async function post<T>(path: string, body: unknown = {}, token?: string | null): Promise<T> {
-    if (!/\/(sales|stock|payments)(\?|$)|^\/expenses(?:\?|$)/.test(path))
+    if (!/\/(sales|stock|payments|meal-cards)(\?|$)|^\/expenses(?:\?|$)/.test(path))
         return request<T>(path, { method: 'POST', body: JSON.stringify(body) }, token);
     const key = JSON.stringify([token, path, body]);
     const requestId = pendingRequests.get(key) ?? crypto.randomUUID();
@@ -52,7 +52,7 @@ export const api = {
     post,
 };
 /** Normalize PostgreSQL numeric values and snake_case keys at the API boundary. */
-const numericKeys = new Set(['capacity', 'occupants', 'monthlyPrice', 'monthlyAmount', 'deposit', 'yearOfStudy', 'expectedAmount', 'amountPaid', 'sellingPrice', 'buyingPrice', 'currentStock', 'lowStockLevel', 'received', 'sold', 'quantity', 'unitPrice', 'total', 'amount', 'income', 'expenses', 'count']);
+const numericKeys = new Set(['capacity', 'occupants', 'monthlyPrice', 'monthlyAmount', 'deposit', 'yearOfStudy', 'expectedAmount', 'amountPaid', 'openingBalance', 'sellingPrice', 'buyingPrice', 'currentStock', 'lowStockLevel', 'received', 'sold', 'quantity', 'unitPrice', 'total', 'amount', 'income', 'expenses', 'credit', 'balance', 'defaultCharge', 'count']);
 export function fromApi<T>(input: unknown): T {
     if (Array.isArray(input))
         return input.map(value => fromApi(value)) as T;

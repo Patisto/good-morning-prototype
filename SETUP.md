@@ -4,7 +4,7 @@ The application now saves operational records through the API to PostgreSQL. A c
 
 ## Run the update
 
-Use the existing backend `.env` with `DATABASE_URL`, `JWT_SECRET`, and `FRONTEND_URL`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`).
+Use the backend `.env` with `DATABASE_URL`, `JWT_SECRET`, and `FRONTEND_URL`. Booking payments also need the PayChangu and SMTP variables listed in `good-morning-backend/.env.example`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`).
 
 From the project root:
 
@@ -42,15 +42,21 @@ Existing users keep their accounts. For a new empty installation, set `SEED_ADMI
 - **Hostel → Configuration:** add or rename housing units, then select an existing unit when adding a room. Add rooms, rename them, set capacity, delete vacant rooms, and set per-room or selected-room batch prices. Each add/edit action opens its own modal; canceling leaves the existing record unchanged. Deletion archives rooms so historical records remain. Default rent is copied into the new-room form; changing the default does not reprice existing rooms.
 - **Hostel → Rooms:** select one housing unit or All units to filter the room grid. Existing unit names are imported by the migration, and renaming a unit updates its rooms.
 - **Hostel → Tenants:** register tenants, edit profiles, move rooms, download agreements, and check out tenants. Capacity is enforced by the server. Room assignment history is retained for later billing.
+- **Hostel → Registrations:** copy the public registration link. Students must first pay using a booking link and enter the emailed one-use booking code. Managers review the submitted profile, assign a room, and record when the physical agreement is signed. Manual tenant registration remains available under Tenants.
+- **Hostel → Bookings:** set a payment amount, optionally associate a room and link expiry, then share the generated link. PayChangu confirms payment server-side before the booking code is emailed through SMTP. Confirmed booking payments appear in Finance as Hostel income.
 - **Hostel → Receive payment:** use the prominent button on the hostel page, a tenant profile, the Payments tab, or Finance. Select the tenant and month, review rent/paid/balance, then record the amount, date, and payment method. A missing monthly charge is created atomically with the payment; generating charges first is no longer required.
-- **Hostel → Payments:** optionally generate all charges for a month to list outstanding balances. Record partial or full payments and review receipts. Add balance notes and view individual receipts. Overpayments are shown as credits. Generating the same month again does not duplicate or reprice existing charges.
+- **Hostel → Monthly rent:** generate charges for a month using each tenant’s effective room rate. Missing earlier months are backfilled, unpaid balances carry forward, and overpayments carry as credits. Record partial/full payments, review receipts, and add balance notes. Re-running charge generation does not duplicate existing charges.
 - **Restaurant:** select A (morning) or B (staff afternoon). Register individual sellable items in Configuration, such as chicken wings or thighs, with a unit and price. Receive that day's quantities in Stock, then record sales. Each date and restaurant has separate stock. Extra receipts add to that day's quantity; unsold stock does not automatically carry to the next day.
 - **Grocery:** configure products and prices, receive deliveries, and record sales. Stock carries forward between dates.
 - **Finance:** the shared page replaces the separate business expense tabs. Filter by date and permitted business, review income/expenses/net cash and the transaction ledger, and record expenses in a modal. Hostel receipts and completed sales populate income automatically. Receiving stock does not create an expense. Business managers see only their department; supervisors and accountants can see all permitted businesses. The old `/expenses` page redirects to Finance.
 - **Feedback:** successful creates, edits, payments, stock receipts, sales, and deletions display notifications only after server confirmation. Errors retain the form and display feedback. Product and staff account editors also use separate modal drafts.
 - **Dashboard:** owners, administrators, super managers, and accountants can choose a date range and view combined revenue, expenses, and net cash, with separate A/B rows. Other staff see links to their permitted workspaces.
 
-Rent is per tenant/bed, with full-month charges for move-in and checkout months. Prices have an effective month; existing monthly charges retain their original amount. Charges are created when receiving a payment or explicitly generated for the whole month; there is no automatic billing schedule. Advance payments may create a future monthly charge at the configured rate, which remains fixed after creation. Credits are retained against their charge and are not automatically transferred between months. The same restaurant manager can manage A and B. Dates use Africa/Blantyre. New sales must be recorded on today's date; earlier dates are available for review.
+Rent is per tenant/bed, with full-month charges for move-in and checkout months. Prices have an effective month; existing monthly charges retain their original amount. Charges are created when receiving a payment or explicitly generated for the whole month; there is no automatic billing schedule. Advance payments may create a future monthly charge at the configured rate, which remains fixed after creation. Unpaid balances and overpayment credits carry into later monthly statements. The same restaurant manager can manage A and B. Dates use Africa/Blantyre. New sales must be recorded on today's date; earlier dates are available for review.
+
+## PayChangu and SMTP setup
+
+Set `PAYCHANGU_SECRET_KEY` and `PAYCHANGU_WEBHOOK_SECRET` from the PayChangu dashboard. Set `API_PUBLIC_URL` to the backend's public origin (without `/api`). Configure the PayChangu webhook URL as `https://<api-host>/api/hostel/bookings/paychangu/webhook`. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` for the mailbox that will send booking codes. Use the matching SMTP TLS mode and credentials supplied by your email provider. The frontend's public origin must be included in `FRONTEND_URL`.
 
 ## Existing data
 

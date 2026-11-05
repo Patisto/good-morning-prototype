@@ -11,13 +11,14 @@ interface Summary {
     business: Business;
     income: number;
     expenses: number;
+    credit: number;
     count: number;
 }
 interface Entry {
     id: string;
     business: Business;
     date: string;
-    kind: 'INCOME' | 'EXPENSE';
+    kind: 'INCOME' | 'EXPENSE' | 'CREDIT';
     amount: number;
     description: string;
     paymentMethod: string;
@@ -28,7 +29,7 @@ const from = ref(today().slice(0, 7) + '-01'), to = ref(today());
 const business = ref(typeof route.query.business === 'string' ? route.query.business : '');
 const businesses = ref<Business[]>([]), summary = ref<Summary[]>([]), entries = ref<Entry[]>([]);
 const kind = ref('ALL'), expenseOpen = ref(false), paymentOpen = ref(false);
-const totals = computed(() => summary.value.reduce((total, row) => ({ income: total.income + row.income, expenses: total.expenses + row.expenses, count: total.count + row.count }), { income: 0, expenses: 0, count: 0 }));
+const totals = computed(() => summary.value.reduce((total, row) => ({ income: total.income + row.income, expenses: total.expenses + row.expenses, credit: total.credit + row.credit, count: total.count + row.count }), { income: 0, expenses: 0, credit: 0, count: 0 }));
 const canEraseTransactions = computed(() => auth.canManage('hostel') || auth.canManage('restaurant') || auth.canManage('grocery'));
 function printReport() { window.print(); }
 const visible = computed(() => entries.value.filter(entry => kind.value === 'ALL' || entry.kind === kind.value));
@@ -66,7 +67,7 @@ onMounted(() => run(load));
           Finance
         </h2>
         <p class="mt-1 text-sm text-ink-muted">
-          Income received, expenses recorded, and net cash for your businesses.
+          Income received, expenses recorded, credit sales to follow up, and net cash for your businesses.
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -106,7 +107,11 @@ onMounted(() => run(load));
       </button>
       <button type="button" class="btn-secondary" @click="printReport">Print filtered report</button>
     </form>
-    <div class="grid gap-3 sm:grid-cols-3">
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div class="panel">
+        <p class="text-sm text-ink-muted">Credit sales to follow up</p>
+        <p class="mt-2 text-2xl font-semibold">{{ formatMWK(totals.credit) }}</p>
+      </div>
       <div class="panel">
         <p class="text-sm text-ink-muted">
           Income received
@@ -145,6 +150,7 @@ onMounted(() => run(load));
             <th>
               Expenses
             </th>
+            <th>Credit</th>
             <th>
               Net cash
             </th>
@@ -161,6 +167,7 @@ onMounted(() => run(load));
             <td>
               {{ formatMWK(row.expenses) }}
             </td>
+            <td>{{ formatMWK(row.credit) }}</td>
             <td>
               {{ formatMWK(row.income-row.expenses) }}
             </td>
@@ -176,7 +183,7 @@ onMounted(() => run(load));
           Show
           <select v-model="kind" class="input">
             <option value="ALL">
-              Income and expenses
+              Income, expenses and credit
             </option>
             <option value="INCOME">
               Income only
@@ -184,6 +191,7 @@ onMounted(() => run(load));
             <option value="EXPENSE">
               Expenses only
             </option>
+            <option value="CREDIT">Credit sales only</option>
           </select>
         </label>
       </div>
@@ -226,12 +234,12 @@ onMounted(() => run(load));
                 {{ businessName(entry.business) }}
               </td>
               <td>
-                {{ entry.kind==='INCOME' ? 'Income' : 'Expense' }}
+                {{ entry.kind==='INCOME' ? 'Income' : entry.kind === 'CREDIT' ? 'Credit' : 'Expense' }}
               </td>
               <td>
                 {{ entry.description }}
               </td>
-              <td :class="entry.kind==='INCOME' ? 'text-success' : 'text-danger'">
+              <td :class="entry.kind==='INCOME' ? 'text-success' : entry.kind==='CREDIT' ? 'text-pending' : 'text-danger'">
                 {{ formatMWK(entry.amount) }}
               </td>
               <td>

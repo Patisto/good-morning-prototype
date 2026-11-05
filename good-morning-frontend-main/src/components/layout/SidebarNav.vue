@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth';
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import logo from '@/goodmorniglogo.png';
 const auth = useAuthStore();
+const route = useRoute();
 defineProps<{
     open: boolean;
 }>();
@@ -22,6 +25,14 @@ const links: {
     { to: '/finance', label: 'Finance', section: 'finance' },
     { to: '/team', label: 'Team & roles', section: 'users' },
 ];
+const currentSubsections = computed(() => {
+    if (route.path === '/hostel') return [{ label: 'Rooms', tab: 'rooms' }, { label: 'Tenants', tab: 'tenants' }, ...(auth.canManage('hostel') ? [{ label: 'Registrations', tab: 'registrations' }, { label: 'Bookings', tab: 'bookings' }] : []), { label: 'Monthly rent', tab: 'payments' }, ...(auth.canManage('hostel') ? [{ label: 'Room setup', tab: 'configuration' }] : [])];
+    if (route.path === '/restaurant' || route.path === '/grocery') {
+        const section = route.path.slice(1);
+        return [{ label: 'Sales', tab: 'sales' }, { label: 'Stock', tab: 'stock' }, ...(section === 'restaurant' ? [{ label: 'Meal cards', tab: 'meal-cards' }] : []), ...(auth.canManage(section) ? [{ label: 'Configuration', tab: 'configuration' }] : [])];
+    }
+    return [];
+});
 </script>
 
 <template>
@@ -65,6 +76,12 @@ const links: {
           @click="$emit('close')"
         >
           {{ link.label }}
+        </router-link>
+      </li>
+      <li v-if="currentSubsections.length" class="ml-3 mt-2 space-y-1 border-l border-line pl-3">
+        <p class="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ route.name }}</p>
+        <router-link v-for="item in currentSubsections" :key="item.tab" :to="{ path: route.path, query: { ...route.query, tab: item.tab } }" class="block rounded px-3 py-2 text-sm text-ink-muted hover:bg-primary-light hover:text-primary-dark" :class="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? '!bg-primary-light !font-semibold !text-primary-dark' : ''" @click="$emit('close')">
+          {{ item.label }}
         </router-link>
       </li>
     </ul>
