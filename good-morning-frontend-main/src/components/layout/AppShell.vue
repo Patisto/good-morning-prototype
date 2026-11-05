@@ -9,6 +9,7 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const title = computed(() => (route.name ? String(route.name) : ''));
+const showSidebar = computed(() => route.path !== '/');
 const sidebarOpen = ref(false);
 watch(() => route.fullPath, () => {
     sidebarOpen.value = false;
@@ -21,11 +22,12 @@ function logout() {
 
 <template>
   <div class="flex h-screen overflow-hidden">
-    <SidebarNav :open="sidebarOpen" @close="sidebarOpen = false" />
+    <SidebarNav v-if="showSidebar" :open="sidebarOpen" @close="sidebarOpen = false" />
     <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header class="flex items-center justify-between gap-3 border-b border-line bg-surface px-4 py-4 sm:px-6">
         <div class="flex min-w-0 items-center gap-3">
           <button
+            v-if="showSidebar"
             type="button"
             class="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-line text-ink-muted hover:border-ink-faint lg:hidden"
             aria-label="Open menu"
