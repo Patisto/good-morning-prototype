@@ -27,7 +27,7 @@ app.use(cors({ origin: (origin, callback) => {
     try { normalized = new URL(origin).origin; } catch { /* Reject malformed origins below. */ }
     callback(null, frontendOrigins.has(normalized));
 } }));
-app.use(express.json({ verify: (req, _res, buffer) => { if (req.originalUrl === '/api/hostel/bookings/paychangu/webhook') (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } }));
+app.use(express.json({ verify: (req, _res, buffer) => { if ((req as express.Request).originalUrl === '/api/hostel/bookings/paychangu/webhook') (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/hostel', hostelRoutes);
