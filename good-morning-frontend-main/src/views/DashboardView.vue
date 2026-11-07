@@ -5,14 +5,15 @@ import { useRouter } from 'vue-router';
 const auth = useAuthStore();
 const router = useRouter();
 const sections = computed(() => [
-    { id: 'hostel', title: 'Hostel', detail: 'Rooms, tenants and rent payments', icon: '⌂' },
-    { id: 'restaurant', title: 'Restaurant', detail: 'Upper and lower restaurant operations', icon: '♨' },
-    { id: 'grocery', title: 'Grocery', detail: 'Sales, products and stock', icon: '▤' },
-    { id: 'finance', title: 'Finance', detail: 'Revenue, expenses and reports', icon: '₭' },
-    { id: 'users', title: 'Team & roles', detail: 'Manage staff access', icon: '♙' },
-].filter(section => auth.canSee(section.id)));
+    { id: 'hostel', access: 'hostel', path: '/hostel', title: 'Hostel', detail: 'Rooms, tenants and rent payments', icon: '⌂' },
+    { id: 'restaurant-upper', access: 'restaurant', path: '/restaurant?business=RESTAURANT_A', title: 'Upper restaurant', detail: 'Sales, stock and meal cards', icon: '♨' },
+    { id: 'restaurant-lower', access: 'restaurant', path: '/restaurant?business=RESTAURANT_B', title: 'Lower restaurant', detail: 'Sales, stock and meal cards', icon: '♨' },
+    { id: 'grocery', access: 'grocery', path: '/grocery', title: 'Grocery', detail: 'Sales, products and stock', icon: '▤' },
+    { id: 'finance', access: 'finance', path: '/finance', title: 'Finance', detail: 'Revenue, expenses and reports', icon: '₭' },
+    { id: 'users', access: 'users', path: '/team', title: 'Team & roles', detail: 'Manage staff access', icon: '♙' },
+].filter(section => auth.canSee(section.access)));
 function openSection(section: typeof sections.value[number]) {
-    void router.push(`/${section.id === 'users' ? 'team' : section.id}`);
+    void router.push(section.path);
 }
 </script>
 <template>
