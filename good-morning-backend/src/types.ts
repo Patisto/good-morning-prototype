@@ -11,8 +11,8 @@ export function canSee(role: Role, section: Section): boolean {
         return role === 'SYSTEM_ADMINISTRATOR';
     if (section === 'expenses' || section === 'finance')
         return ['HOSTEL_MANAGER', 'RESTAURANT_MANAGER', 'GROCERY_MANAGER', 'ACCOUNTANT'].includes(role);
-    if (role === 'ACCOUNTANT')
-        return true;
+    if (role === 'ACCOUNTANT' || role === 'SYSTEM_ADMINISTRATOR')
+        return false;
     return role.startsWith(section.toUpperCase() + '_');
 }
 export function canManage(role: Role, section: Section): boolean {

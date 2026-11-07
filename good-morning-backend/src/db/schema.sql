@@ -1,6 +1,5 @@
 -- Good Morning — central PostgreSQL schema.
--- Postgres is the authoritative long-term store; the local SQLite copy in the
--- offline client mirrors this shape and syncs into it. Safe to re-run.
+-- PostgreSQL is the authoritative store. Safe to re-run.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -63,52 +62,6 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS student_applications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  first_name text NOT NULL,
-  middle_name text,
-  last_name text NOT NULL,
-  phone text NOT NULL,
-  email text,
-  institution text,
-  programme text,
-  faculty text,
-  department text,
-  year_of_study int,
-  reg_number text,
-  academic_year text,
-  preferred_room_id text REFERENCES rooms(id),
-  student_signature text NOT NULL,
-  agreement_status text NOT NULL DEFAULT 'PENDING',
-  gender text,
-  date_of_birth date,
-  alt_phone text,
-  home_district text,
-  home_address text,
-  emergency_contact_name text,
-  emergency_contact_phone text,
-  emergency_contact_relationship text,
-  move_in_date date,
-  deposit numeric(12,2) NOT NULL DEFAULT 0,
-  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','DECLINED')),
-  tenant_id uuid REFERENCES tenants(id),
-  submitted_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS gender text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS date_of_birth date;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS alt_phone text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_district text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_address text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_name text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_phone text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_relationship text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS move_in_date date;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS deposit numeric(12,2) NOT NULL DEFAULT 0;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'PENDING';
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS agreement_status text NOT NULL DEFAULT 'PENDING';
-ALTER TABLE student_applications ALTER COLUMN student_signature DROP NOT NULL;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS booking_id uuid;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
@@ -275,36 +228,6 @@ CREATE TABLE IF NOT EXISTS rent_receipts (
   legacy_payment_id uuid UNIQUE REFERENCES hostel_payments(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS hostel_booking_offers (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  token text NOT NULL UNIQUE,
-  title text NOT NULL DEFAULT 'Hostel booking payment',
-  amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  room_id text REFERENCES rooms(id),
-  active boolean NOT NULL DEFAULT true,
-  expires_at timestamptz,
-  created_by uuid REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS hostel_bookings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  offer_id uuid NOT NULL REFERENCES hostel_booking_offers(id),
-  email text NOT NULL,
-  amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  tx_ref text NOT NULL UNIQUE,
-  checkout_url text NOT NULL,
-  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PAID','USED','FAILED')),
-  booking_code text UNIQUE,
-  paid_at timestamptz,
-  code_email_claimed_at timestamptz,
-  code_email_sent_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='student_applications_booking_fk') THEN
-    ALTER TABLE student_applications ADD CONSTRAINT student_applications_booking_fk FOREIGN KEY (booking_id) REFERENCES hostel_bookings(id);
-  END IF;
-END $$;
 -- Preserve recognized legacy monthly balances and receipts. Unrecognized labels
 -- remain in hostel_payments for manual reconciliation; nothing is deleted.
 INSERT INTO rent_charges(tenant_id,month,expected_amount)

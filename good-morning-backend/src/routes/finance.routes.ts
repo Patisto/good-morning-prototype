@@ -21,8 +21,6 @@ router.get('/', route(async (req, res) => {
         FROM sales s WHERE s.status='COMPLETED' AND s.payment_method<>'MEAL_CARD'
         UNION ALL SELECT f.id,f.business,f.date,'INCOME',f.amount,'Meal card prepaid · ' || c.customer_name,'MEAL_CARD','',f.created_at
         FROM restaurant_meal_card_funding f JOIN restaurant_meal_cards c ON c.id=f.meal_card_id
-        UNION ALL SELECT b.id,'HOSTEL'::text,b.paid_at::date,'INCOME',b.amount,'Hostel booking · ' || b.email,'PAYCHANGU'::text,''::text,b.paid_at
-        FROM hostel_bookings b WHERE b.status IN ('PAID','USED') AND b.paid_at IS NOT NULL
         UNION ALL SELECT e.id,e.business,e.date,'EXPENSE',e.amount,e.description,e.payment_method,COALESCE(e.notes,''),e.created_at FROM expenses e
     )`;
     const args = [scope, from, to];

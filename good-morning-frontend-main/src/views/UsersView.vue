@@ -32,7 +32,7 @@ onMounted(() => run(load));
       Team & roles
     </h2>
     <p class="text-sm text-ink-muted">
-      Business managers configure their department and record expenses. Cashiers record sales. Super managers can manage all businesses and see combined reporting. Accountants can review operations and record expenses.
+      Each account has one role. Business managers and cashiers work in their assigned business, accountants review central financial reports, system managers oversee the business sections, and authorised administrators manage staff accounts.
     </p>
     <p v-if="error" class="error" role="alert">
       {{ error }}
