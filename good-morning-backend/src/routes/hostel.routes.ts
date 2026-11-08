@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { ensureRentCharges, rentAccount } from '../services/rent';
+import { normalizeMalawiPhone } from '../services/phone';
 import { pool } from '../db/pool';
 import { requireAuth, requireSection, requireManager } from '../middleware/auth';
 import { claimRequest, check, date, method, month, number, route, text, today, transaction } from '../utils/http';
@@ -115,6 +116,7 @@ const snake = (key: string) => key.replace(/[A-Z]/g, c => '_' + c.toLowerCase())
 router.post('/tenants', manage, route(async (req, res) => {
     const b = req.body, id = b.id || randomUUID();
     const first = text(b.firstName, 'First name'), last = text(b.lastName, 'Last name'), phone = text(b.phone, 'Phone');
+    const phoneNormalized = normalizeMalawiPhone(phone);
     const roomId = text(b.roomId, 'Room'), moveIn = date(b.moveInDate);
     check(moveIn <= today(), 'Move-in cannot be in the future.');
     check(['PENDING', 'SIGNED', 'EXPIRED'].includes(b.agreementStatus), 'Invalid agreement status.');
@@ -128,6 +130,8 @@ router.post('/tenants', manage, route(async (req, res) => {
             check(current.rows[0].move_in_date === moveIn, 'Move-in date cannot be changed after registration.');
             previousRoom = current.rows[0].room_id;
         }
+        const duplicate = await db.query('SELECT id FROM tenants WHERE phone_normalized=$1 AND id<>$2 AND deleted_at IS NULL', [phoneNormalized, id]);
+        check(!duplicate.rowCount, 'That phone number is already registered to another active tenant.', 409);
         const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
         check(room.rowCount, 'Room not found.', 404);
         const occupancy = await db.query('SELECT COUNT(*)::int AS n FROM tenants WHERE room_id=$1 AND id<>$2 AND deleted_at IS NULL AND checkout_date IS NULL', [roomId, id]);
