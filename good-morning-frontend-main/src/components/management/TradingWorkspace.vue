@@ -100,17 +100,6 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         <router-link v-if="auth.canSee('finance')" class="btn-secondary self-end" :to="{ path:'/finance',query:{ business } }">
           View finances
         </router-link>
-        <label v-if="section==='restaurant'" class="field">
-          Restaurant
-          <select v-model="business" class="input" :disabled="busy">
-            <option value="RESTAURANT_A">
-              UPPER RESTAURANT
-            </option>
-            <option value="RESTAURANT_B">
-              LOWER RESTAURANT
-            </option>
-          </select>
-        </label>
         <label class="field">
           Trading date
           <input v-model="date" class="input" type="date" :max="today()" :disabled="busy" />

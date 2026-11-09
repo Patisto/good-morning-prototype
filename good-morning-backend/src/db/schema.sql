@@ -1,6 +1,5 @@
 -- Good Morning — central PostgreSQL schema.
--- Postgres is the authoritative long-term store; the local SQLite copy in the
--- offline client mirrors this shape and syncs into it. Safe to re-run.
+-- PostgreSQL is the authoritative store. Safe to re-run.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -63,52 +62,6 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS student_applications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  first_name text NOT NULL,
-  middle_name text,
-  last_name text NOT NULL,
-  phone text NOT NULL,
-  email text,
-  institution text,
-  programme text,
-  faculty text,
-  department text,
-  year_of_study int,
-  reg_number text,
-  academic_year text,
-  preferred_room_id text REFERENCES rooms(id),
-  student_signature text NOT NULL,
-  agreement_status text NOT NULL DEFAULT 'PENDING',
-  gender text,
-  date_of_birth date,
-  alt_phone text,
-  home_district text,
-  home_address text,
-  emergency_contact_name text,
-  emergency_contact_phone text,
-  emergency_contact_relationship text,
-  move_in_date date,
-  deposit numeric(12,2) NOT NULL DEFAULT 0,
-  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','DECLINED')),
-  tenant_id uuid REFERENCES tenants(id),
-  submitted_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS gender text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS date_of_birth date;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS alt_phone text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_district text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS home_address text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_name text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_phone text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS emergency_contact_relationship text;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS move_in_date date;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS deposit numeric(12,2) NOT NULL DEFAULT 0;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'PENDING';
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS agreement_status text NOT NULL DEFAULT 'PENDING';
-ALTER TABLE student_applications ALTER COLUMN student_signature DROP NOT NULL;
-ALTER TABLE student_applications ADD COLUMN IF NOT EXISTS booking_id uuid;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
@@ -269,42 +222,12 @@ CREATE TABLE IF NOT EXISTS rent_receipts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   charge_id uuid NOT NULL REFERENCES rent_charges(id),
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  payment_method text NOT NULL CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER')),
+  payment_method text NOT NULL CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','PAYCHANGU')),
   payment_date date NOT NULL,
   recorded_by uuid REFERENCES users(id),
   legacy_payment_id uuid UNIQUE REFERENCES hostel_payments(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS hostel_booking_offers (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  token text NOT NULL UNIQUE,
-  title text NOT NULL DEFAULT 'Hostel booking payment',
-  amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  room_id text REFERENCES rooms(id),
-  active boolean NOT NULL DEFAULT true,
-  expires_at timestamptz,
-  created_by uuid REFERENCES users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS hostel_bookings (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  offer_id uuid NOT NULL REFERENCES hostel_booking_offers(id),
-  email text NOT NULL,
-  amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  tx_ref text NOT NULL UNIQUE,
-  checkout_url text NOT NULL,
-  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PAID','USED','FAILED')),
-  booking_code text UNIQUE,
-  paid_at timestamptz,
-  code_email_claimed_at timestamptz,
-  code_email_sent_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='student_applications_booking_fk') THEN
-    ALTER TABLE student_applications ADD CONSTRAINT student_applications_booking_fk FOREIGN KEY (booking_id) REFERENCES hostel_bookings(id);
-  END IF;
-END $$;
 -- Preserve recognized legacy monthly balances and receipts. Unrecognized labels
 -- remain in hostel_payments for manual reconciliation; nothing is deleted.
 INSERT INTO rent_charges(tenant_id,month,expected_amount)
@@ -388,3 +311,51 @@ UPDATE rooms r SET housing_unit_id=u.id, housing_unit=u.name FROM housing_units 
 WHERE r.housing_unit_id IS NULL AND lower(COALESCE(NULLIF(btrim(r.housing_unit),''),'Unassigned'))=lower(btrim(u.name));
 ALTER TABLE rooms ALTER COLUMN housing_unit_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rooms_housing_unit ON rooms(housing_unit_id);
+
+-- Online PayChangu rent payments. Additive migration; existing rental history is untouched.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone_normalized text;
+CREATE OR REPLACE FUNCTION normalize_malawi_phone_sql(raw text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN regexp_replace(COALESCE(raw,''), '[^0-9]', '', 'g') ~ '^0[0-9]{9}$' THEN '265' || substring(regexp_replace(raw, '[^0-9]', '', 'g') from 2)
+    WHEN regexp_replace(COALESCE(raw,''), '[^0-9]', '', 'g') ~ '^265(88|89|98|99)[0-9]{7}$' THEN regexp_replace(raw, '[^0-9]', '', 'g')
+    ELSE NULL END
+$$;
+UPDATE tenants SET phone_normalized=normalize_malawi_phone_sql(phone) WHERE phone_normalized IS DISTINCT FROM normalize_malawi_phone_sql(phone);
+CREATE INDEX IF NOT EXISTS idx_tenants_phone_normalized ON tenants(phone_normalized);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_phone_normalized ON tenants(phone_normalized) WHERE phone_normalized IS NOT NULL AND deleted_at IS NULL;
+CREATE OR REPLACE FUNCTION sync_tenant_phone_normalized() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.phone_normalized := normalize_malawi_phone_sql(NEW.phone); RETURN NEW; END $$;
+DROP TRIGGER IF EXISTS tenants_phone_normalized_trigger ON tenants;
+CREATE TRIGGER tenants_phone_normalized_trigger BEFORE INSERT OR UPDATE OF phone ON tenants FOR EACH ROW EXECUTE FUNCTION sync_tenant_phone_normalized();
+
+ALTER TABLE rent_receipts ADD COLUMN IF NOT EXISTS payment_attempt_id uuid;
+ALTER TABLE rent_receipts DROP CONSTRAINT IF EXISTS rent_receipts_payment_method_check;
+ALTER TABLE rent_receipts ADD CONSTRAINT rent_receipts_payment_method_check CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','PAYCHANGU'));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_rent_receipts_payment_attempt ON rent_receipts(payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS payment_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), reference text NOT NULL UNIQUE,
+  student_id uuid NOT NULL REFERENCES tenants(id), rental_invoice_id uuid REFERENCES rent_charges(id),
+  provider text NOT NULL DEFAULT 'PAYCHANGU', provider_transaction_id text,
+  amount numeric(12,2) NOT NULL CHECK (amount > 0), currency text NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','EXPIRED')),
+  checkout_url text, failure_reason text, balance_snapshot numeric(12,2) NOT NULL DEFAULT 0,
+  initiated_ip inet, paid_at timestamptz, expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_attempts_provider_transaction ON payment_attempts(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_status_created ON payment_attempts(status,created_at);
+CREATE TABLE IF NOT EXISTS payment_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), payment_attempt_id uuid REFERENCES payment_attempts(id),
+  provider_event_id text, event_type text NOT NULL, payload_hash text NOT NULL, raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  signature_valid boolean NOT NULL, processed boolean NOT NULL DEFAULT false, processing_result text,
+  received_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_events_provider_event ON payment_events(provider_event_id) WHERE provider_event_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_events_payload_hash ON payment_events(payload_hash);
+CREATE TABLE IF NOT EXISTS payment_allocations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), payment_attempt_id uuid NOT NULL REFERENCES payment_attempts(id),
+  student_id uuid NOT NULL REFERENCES tenants(id), rental_invoice_id uuid NOT NULL REFERENCES rent_charges(id),
+  amount numeric(12,2) NOT NULL CHECK (amount > 0), created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_allocations_attempt ON payment_allocations(payment_attempt_id);

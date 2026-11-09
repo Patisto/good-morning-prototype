@@ -9,11 +9,18 @@ import financeRoutes from './routes/finance.routes';
 import expensesRoutes from './routes/expenses.routes';
 import usersRoutes from './routes/users.routes';
 import reportsRoutes from './routes/reports.routes';
+import publicPaymentRoutes from './routes/public-payments.routes';
+import paychanguWebhookRoutes from './routes/paychangu-webhook.routes';
+import { startReconciliationScheduler } from './services/reconciliation';
+import { config } from './config';
 import { HttpError } from './utils/http';
 dotenv.config();
 const app = express();
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use('/api/webhooks/paychangu', express.raw({ type: 'application/json', limit: '256kb' }), paychanguWebhookRoutes);
 const frontendOrigins = new Set<string>();
-for (const configured of (process.env.FRONTEND_URL ?? 'http://localhost:5173').split(',')) {
+for (const configured of config.corsOrigins.length ? config.corsOrigins : ['http://localhost:5173']) {
     try {
         const url = new URL(configured.trim());
         frontendOrigins.add(url.origin);
@@ -27,8 +34,11 @@ app.use(cors({ origin: (origin, callback) => {
     try { normalized = new URL(origin).origin; } catch { /* Reject malformed origins below. */ }
     callback(null, frontendOrigins.has(normalized));
 } }));
-app.use(express.json({ verify: (req, _res, buffer) => { if ((req as express.Request).originalUrl === '/api/hostel/bookings/paychangu/webhook') (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } }));
+app.use((req, res, next) => { if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') return res.status(400).json({ error: 'HTTPS is required.' }); next(); });
+app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); next(); });
+app.use(express.json());
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+app.use('/api/public/rental-payments', publicPaymentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/hostel', hostelRoutes);
 app.use('/api/restaurant', restaurantRoutes);
@@ -55,4 +65,5 @@ const port = Number(process.env.PORT ?? 4000);
 // Cloud web hosts route traffic to the port they provide at runtime.
 app.listen(port, '0.0.0.0', () => {
     console.log(`Good Morning API listening on port ${port}`);
+    startReconciliationScheduler();
 });

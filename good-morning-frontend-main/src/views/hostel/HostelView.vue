@@ -11,7 +11,6 @@ import { useTask } from '@/composables/useTask';
 import { downloadAgreement } from '@/lib/accommodation-agreement';
 import StatusPill from '@/components/ui/StatusPill.vue';
 import SearchInput from '@/components/ui/SearchInput.vue';
-import { api, fromApi } from '@/lib/api';
 import { formatMWK, today } from '@/types';
 import type { Room, Tenant } from '@/types';
 type TenantDraft = Omit<Tenant, 'id'>;
@@ -29,40 +28,7 @@ const selectedRoom = ref<Room | null>(null);
 const selectedTenant = ref<Tenant | null>(null);
 const editing = ref(false);
 const savingError = ref('');
-type StudentApplication = { id:string; firstName:string; middleName?:string; lastName:string; gender?:string; dateOfBirth?:string; phone:string; altPhone?:string; email?:string; homeDistrict?:string; homeAddress?:string; emergencyContactName?:string; emergencyContactPhone?:string; emergencyContactRelationship?:string; institution?:string; programme?:string; faculty?:string; department?:string; yearOfStudy?:number; regNumber?:string; academicYear?:string; preferredRoomId?:string; moveInDate?:string; submittedAt:string; agreementStatus:string; status:string; roomLabel?:string; roomIdentifier?:string; housingUnit?:string };
-const applications = ref<StudentApplication[]>([]);
-type BookingOffer = { id:string; token:string; title:string; amount:number; roomId?:string; active:boolean; expiresAt?:string; housingUnit?:string; label?:string; identifier?:string };
-type BookingPayment = { id:string; email:string; amount:number; status:string; txRef:string; paidAt?:string; createdAt:string; title:string };
-const bookingOffers = ref<BookingOffer[]>([]), bookingPayments = ref<BookingPayment[]>([]), bookingDraft = ref({ title: 'Hostel booking payment', amount: null as number | null, roomId: '', expiresAt: '' }), createdBookingUrl = ref('');
-const reviewingApplicationId = ref<string | null>(null);
-const applicationsOpen = ref(false), applicationSearch = ref(''), showAllApplications = ref(false);
-const filteredApplications = computed(() => {
-    const query = applicationSearch.value.trim().toLowerCase();
-    if (!query) return applications.value;
-    return applications.value.filter(application => `${application.firstName} ${application.middleName ?? ''} ${application.lastName} ${application.phone} ${application.email ?? ''} ${application.institution ?? ''} ${application.programme ?? ''} ${application.regNumber ?? ''} ${application.status}`.toLowerCase().includes(query));
-});
-const visibleApplications = computed(() => showAllApplications.value ? filteredApplications.value : filteredApplications.value.slice(0, 10));
-async function loadApplications() { applications.value = fromApi<{applications:StudentApplication[]}>(await api.get('/hostel/applications', auth.token)).applications; }
-async function loadBookings() { const data = fromApi<{offers:BookingOffer[];bookings:BookingPayment[]}>(await api.get('/hostel/bookings/offers', auth.token)); bookingOffers.value = data.offers; bookingPayments.value = data.bookings; }
-async function createBookingLink() {
-    if (!bookingDraft.value.amount) return;
-    await run(async () => {
-        const result = await api.post<{bookingUrl:string}>('/hostel/bookings/offers', { ...bookingDraft.value, roomId: bookingDraft.value.roomId || undefined, expiresAt: bookingDraft.value.expiresAt ? new Date(bookingDraft.value.expiresAt).toISOString() : undefined }, auth.token);
-        createdBookingUrl.value = result.bookingUrl;
-        bookingDraft.value = { title: 'Hostel booking payment', amount: null, roomId: '', expiresAt: '' };
-        await loadBookings();
-    });
-}
-async function deactivateBookingLink(offer: BookingOffer) {
-    if (!confirm(`Deactivate the booking link “${offer.title}”?`)) return;
-    await run(async () => { await api.delete(`/hostel/bookings/offers/${offer.id}`, auth.token); await loadBookings(); });
-}
-async function copyBookingUrl(url: string) { await navigator.clipboard.writeText(url); }
-const registrationUrl = `${window.location.origin}/student-registration`;
-const bookingLinkBase = `${window.location.origin}/hostel-booking/`;
-async function copyRegistrationLink() { await navigator.clipboard.writeText(registrationUrl); }
 const canManage = computed(() => auth.canManage('hostel'));
-watch(tab, value => { if (value === 'registrations' && canManage.value) void run(loadApplications); if (value === 'bookings' && canManage.value) void run(loadBookings); }, { immediate: true });
 const roomsByUnit = computed(() => {
     const groups = new Map<string, Room[]>();
     for (const room of hostel.rooms) {
@@ -103,28 +69,14 @@ async function saveTenant() {
     savingError.value = '';
     await run(async () => {
         let tenantId: string;
-        if (reviewingApplicationId.value) {
-            const result = await api.post<{id:string}>(`/hostel/applications/${reviewingApplicationId.value}/approve`, form.value, auth.token);
-            tenantId = result.id;
-            reviewingApplicationId.value = null;
-            await hostel.hydrate();
-            await loadApplications();
-        } else {
-            const existingId = selectedTenant.value?.id;
-            const result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: existingId! }) : await hostel.addTenant(form.value);
-            tenantId = result.id ?? existingId ?? '';
-            if (!tenantId) throw new Error('Tenant was saved, but the server did not return its record ID. Refresh the tenant list.');
-        }
+        const existingId = selectedTenant.value?.id;
+        const result = selectedTenant.value ? await hostel.updateTenant({ ...form.value, id: existingId! }) : await hostel.addTenant(form.value);
+        tenantId = result.id ?? existingId ?? '';
+        if (!tenantId) throw new Error('Tenant was saved, but the server did not return its record ID. Refresh the tenant list.');
         selectedTenant.value = hostel.tenants.find(t => t.id === tenantId) ?? null;
         editing.value = false;
     });
     savingError.value = error.value;
-}
-function reviewApplication(application: StudentApplication) {
-    selectedRoom.value = null; selectedTenant.value = null; reviewingApplicationId.value = application.id;
-    const room = hostel.rooms.find(entry => entry.id === application.preferredRoomId);
-    form.value = { ...blankTenant(), ...application, roomId: room?.id ?? '', monthlyAmount: room?.monthlyPrice ?? hostel.defaultPrice, moveInDate: application.moveInDate || today(), agreementStatus: 'PENDING' };
-    savingError.value = ''; editing.value = true;
 }
 async function checkout() {
     if (!selectedTenant.value || !confirm('Check out this tenant today? Payment history will be retained.'))
@@ -134,7 +86,7 @@ async function checkout() {
         selectedTenant.value = null;
     });
 }
-function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false; reviewingApplicationId.value = null; }
+function closeModal() { selectedRoom.value = null; selectedTenant.value = null; editing.value = false; }
 </script>
 
 <template>
@@ -166,37 +118,6 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
         Register tenant
       </button>
     </div>
-    <section v-if="tab==='registrations' && canManage" class="panel space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-semibold">Online student registration</h3><p class="text-sm text-ink-muted">Students pay through a booking link first, then enter their emailed code here. You review their details, assign a room, and record the physical agreement.</p></div><button type="button" class="btn-secondary" @click="copyRegistrationLink">Copy registration link</button></div>
-      <a class="break-all text-sm text-primary underline" :href="registrationUrl" target="_blank" rel="noopener">{{ registrationUrl }}</a>
-      <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-semibold">Student applications · {{ applications.length }}</h3><div class="flex gap-2"><button type="button" class="btn-secondary" :aria-expanded="applicationsOpen" @click="applicationsOpen=!applicationsOpen">{{ applicationsOpen ? 'Hide applications' : 'View applications' }}</button><button type="button" class="btn-secondary" :disabled="busy" @click="run(loadApplications)">Refresh</button></div></div>
-      <div v-if="applicationsOpen" class="space-y-3">
-      <label class="field">Search applications<input v-model="applicationSearch" class="input" placeholder="Name, phone, institution, or status"></label>
-      <p v-if="!filteredApplications.length" class="text-sm text-ink-muted">{{ applications.length ? 'No applications match this search.' : 'No student applications yet.' }}</p>
-      <div v-for="application in visibleApplications" :key="application.id" class="grid gap-4 rounded border border-line p-4 sm:grid-cols-[1fr_240px]">
-        <div class="sm:col-span-2"><div class="flex items-center justify-between gap-2"><p class="font-medium">{{ application.firstName }} {{ application.middleName }} {{ application.lastName }}</p><span class="text-xs font-semibold uppercase text-ink-muted">{{ application.status }} · physical agreement {{ application.agreementStatus.toLowerCase() }}</span></div><p class="text-sm text-ink-muted">{{ application.phone }} · {{ application.email || 'No email' }}</p><p class="text-sm">{{ application.institution || 'Institution not provided' }} · {{ application.programme || 'Programme not provided' }} · {{ application.regNumber || 'No registration number' }}</p><p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.submittedAt).toLocaleString() }}<span v-if="application.roomLabel || application.roomIdentifier"> · Preferred: {{ application.housingUnit }} {{ application.roomLabel || application.roomIdentifier }}</span></p><button v-if="application.status==='PENDING'" type="button" class="btn mt-3" @click="reviewApplication(application)">Review and assign room</button></div>
-      </div>
-      <button v-if="filteredApplications.length>10" type="button" class="btn-secondary" @click="showAllApplications=!showAllApplications">{{ showAllApplications ? 'Show latest 10' : `Show all ${filteredApplications.length} applications` }}</button>
-      </div>
-    </section>
-    <section v-if="tab==='bookings' && canManage" class="space-y-5">
-      <div class="panel space-y-4">
-        <div><h3 class="font-semibold">Create a booking payment link</h3><p class="text-sm text-ink-muted">Set the amount due. The student enters an email, pays through PayChangu, then receives a one-use booking code by email.</p></div>
-        <form class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="createBookingLink">
-          <label class="field">Link name<input v-model="bookingDraft.title" class="input" required maxlength="200"></label>
-          <label class="field">Payment amount (MWK)<input v-model.number="bookingDraft.amount" class="input" type="number" min="0.01" step="0.01" required></label>
-          <label class="field">Room (optional)<select v-model="bookingDraft.roomId" class="input"><option value="">Manager assigns later</option><option v-for="room in hostel.rooms" :key="room.id" :value="room.id">{{ room.housingUnit }} · {{ room.label || room.identifier }}</option></select></label>
-          <label class="field">Link expires (optional)<input v-model="bookingDraft.expiresAt" class="input" type="datetime-local"></label>
-          <button class="btn sm:col-span-2 lg:col-span-4" :disabled="busy || !bookingDraft.amount">Generate payment link</button>
-        </form>
-        <div v-if="createdBookingUrl" class="rounded border border-primary bg-primary-light p-3"><p class="text-sm font-medium">Booking link ready</p><a class="break-all text-sm text-primary underline" :href="createdBookingUrl" target="_blank" rel="noopener">{{ createdBookingUrl }}</a><button class="btn-secondary ml-2" type="button" @click="copyBookingUrl(createdBookingUrl)">Copy link</button></div>
-      </div>
-      <div class="panel space-y-3"><div class="flex items-center justify-between"><h3 class="font-semibold">Payment links</h3><button class="btn-secondary" :disabled="busy" @click="run(loadBookings)">Refresh</button></div>
-        <div class="overflow-x-auto"><table class="data-table"><thead><tr><th>Name</th><th>Amount</th><th>Room</th><th>Status</th><th>Link</th><th></th></tr></thead><tbody><tr v-for="offer in bookingOffers" :key="offer.id"><td>{{ offer.title }}</td><td>{{ formatMWK(offer.amount) }}</td><td>{{ offer.roomId ? `${offer.housingUnit || ''} ${offer.label || offer.identifier || offer.roomId}` : 'Assign later' }}</td><td>{{ offer.active ? 'Active' : 'Inactive' }}</td><td><button v-if="offer.active" class="text-primary underline" @click="copyBookingUrl(`${bookingLinkBase}${offer.token}`)">Copy link</button></td><td><button v-if="offer.active" class="text-sm text-danger underline" @click="deactivateBookingLink(offer)">Deactivate</button></td></tr></tbody></table></div>
-        <p v-if="!bookingOffers.length" class="text-sm text-ink-muted">No booking payment links have been created.</p>
-      </div>
-      <div class="panel space-y-3"><h3 class="font-semibold">Recent booking payments</h3><div class="overflow-x-auto"><table class="data-table"><thead><tr><th>Date</th><th>Payment link</th><th>Email</th><th>Amount</th><th>Payment status</th></tr></thead><tbody><tr v-for="payment in bookingPayments" :key="payment.id"><td>{{ payment.paidAt ? new Date(payment.paidAt).toLocaleDateString() : new Date(payment.createdAt).toLocaleDateString() }}</td><td>{{ payment.title }}</td><td>{{ payment.email }}</td><td>{{ formatMWK(payment.amount) }}</td><td>{{ payment.status }}</td></tr></tbody></table></div><p v-if="!bookingPayments.length" class="text-sm text-ink-muted">No booking payments yet.</p></div>
-    </section>
     <div v-if="tab === 'rooms'" class="space-y-6">
       <label class="field max-w-sm">Housing unit
         <select v-model="unitFilter" class="input"><option value="">All units</option><option v-for="unit in hostel.units" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select>

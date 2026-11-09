@@ -13,15 +13,16 @@ defineEmits<{
     ];
 }>();
 type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'finance' | 'users';
-const sectionTitle = computed(() => ({
+const sectionTitle = computed(() => route.name === 'restaurant'
+    ? route.query.business === 'RESTAURANT_B' ? 'Lower restaurant' : 'Upper restaurant'
+    : ({
     hostel: 'Hostel',
-    restaurant: 'Restaurant',
     grocery: 'Grocery',
     finance: 'Finance',
     users: 'Team & roles',
 }[String(route.name ?? '') as NavSection] ?? 'Section'));
 const currentSubsections = computed(() => {
-    if (route.path === '/hostel') return [{ label: 'Rooms', tab: 'rooms' }, { label: 'Tenants', tab: 'tenants' }, ...(auth.canManage('hostel') ? [{ label: 'Registrations', tab: 'registrations' }, { label: 'Bookings', tab: 'bookings' }] : []), { label: 'Monthly rent', tab: 'payments' }, ...(auth.canManage('hostel') ? [{ label: 'Room setup', tab: 'configuration' }] : [])];
+    if (route.path === '/hostel') return [{ label: 'Rooms', tab: 'rooms' }, { label: 'Tenants', tab: 'tenants' }, { label: 'Monthly rent', tab: 'payments' }, ...(auth.canManage('hostel') ? [{ label: 'Room setup', tab: 'configuration' }] : [])];
     if (route.path === '/restaurant' || route.path === '/grocery') {
         const section = route.path.slice(1);
         return [{ label: 'Sales', tab: 'sales' }, { label: 'Stock', tab: 'stock' }, ...(section === 'restaurant' ? [{ label: 'Meal cards', tab: 'meal-cards' }] : []), ...(auth.canManage(section) ? [{ label: 'Configuration', tab: 'configuration' }] : [])];

@@ -4,7 +4,7 @@ The application now saves operational records through the API to PostgreSQL. A c
 
 ## Run the update
 
-Use the backend `.env` with `DATABASE_URL`, `JWT_SECRET`, and `FRONTEND_URL`. Booking payments also need the PayChangu and SMTP variables listed in `good-morning-backend/.env.example`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`).
+Use the backend `.env` with `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL`, SMTP settings, and the PayChangu settings from `good-morning-backend/.env.example`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`).
 
 From the project root:
 
@@ -35,16 +35,16 @@ npm run dev
 
 For deployment, rebuild both projects using `npm run build` in each directory. The checked-in `dist` files are old generated assets; source changes are the deliverable. Backend `npm start` runs the compiled files, so rebuild before starting it.
 
-Existing users keep their accounts. For a new empty installation, set `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` (at least 12 characters), and optionally `SEED_ADMIN_NAME` in the backend environment, then run `npm run seed`. This creates one owner without inserting sample rooms, menus, sales, or expenses. Owners and administrators can use **Team & roles** to add staff or change roles.
+Existing users keep their accounts. For a new empty installation, set `SEED_SUPER_EMAIL`, `SEED_SUPER_PASSWORD` (at least 12 characters), and optionally `SEED_SUPER_NAME` in the backend environment, then run `npm run seed`. This creates one super manager and starter rooms without inserting sample tenants, menus, sales, or expenses. Owners and administrators can use **Team & roles** to add staff or change roles.
 
 ## Workflows
 
 - **Hostel → Configuration:** add or rename housing units, then select an existing unit when adding a room. Add rooms, rename them, set capacity, delete vacant rooms, and set per-room or selected-room batch prices. Each add/edit action opens its own modal; canceling leaves the existing record unchanged. Deletion archives rooms so historical records remain. Default rent is copied into the new-room form; changing the default does not reprice existing rooms.
 - **Hostel → Rooms:** select one housing unit or All units to filter the room grid. Existing unit names are imported by the migration, and renaming a unit updates its rooms.
 - **Hostel → Tenants:** register tenants, edit profiles, move rooms, download agreements, and check out tenants. Capacity is enforced by the server. Room assignment history is retained for later billing.
-- **Hostel → Registrations:** copy the public registration link. Students must first pay using a booking link and enter the emailed one-use booking code. Managers review the submitted profile, assign a room, and record when the physical agreement is signed. Manual tenant registration remains available under Tenants.
-- **Hostel → Bookings:** set a payment amount, optionally associate a room and link expiry, then share the generated link. PayChangu confirms payment server-side before the booking code is emailed through SMTP. Confirmed booking payments appear in Finance as Hostel income.
+- **Hostel → Tenants:** authorised hostel staff register tenants in person, assign rooms, update profiles, download accommodation forms, and mark when signed physical forms are received. Admission decisions stay with hostel management.
 - **Hostel → Receive payment:** use the prominent button on the hostel page, a tenant profile, the Payments tab, or Finance. Select the tenant and month, review rent/paid/balance, then record the amount, date, and payment method. A missing monthly charge is created atomically with the payment; generating charges first is no longer required.
+- **Online hostel rent:** host `payment-portal/code.html` as a static page, set its `API_BASE_URL` to the deployed API origin ending in `/api`, and set `PAYCHANGU_RETURN_URL` to that page's public URL. Students look up their account with their registered Malawi phone number. PayChangu sends the signed webhook to the backend; the API independently verifies the transaction before posting a rent receipt.
 - **Hostel → Monthly rent:** generate charges for a month using each tenant’s effective room rate. Missing earlier months are backfilled, unpaid balances carry forward, and overpayments carry as credits. Record partial/full payments, review receipts, and add balance notes. Re-running charge generation does not duplicate existing charges.
 - **Restaurant:** select A (morning) or B (staff afternoon). Register individual sellable items in Configuration, such as chicken wings or thighs, with a unit and price. Receive that day's quantities in Stock, then record sales. Each date and restaurant has separate stock. Extra receipts add to that day's quantity; unsold stock does not automatically carry to the next day.
 - **Grocery:** configure products and prices, receive deliveries, and record sales. Stock carries forward between dates.
@@ -54,9 +54,7 @@ Existing users keep their accounts. For a new empty installation, set `SEED_ADMI
 
 Rent is per tenant/bed, with full-month charges for move-in and checkout months. Prices have an effective month; existing monthly charges retain their original amount. Charges are created when receiving a payment or explicitly generated for the whole month; there is no automatic billing schedule. Advance payments may create a future monthly charge at the configured rate, which remains fixed after creation. Unpaid balances and overpayment credits carry into later monthly statements. The same restaurant manager can manage A and B. Dates use Africa/Blantyre. New sales must be recorded on today's date; earlier dates are available for review.
 
-## PayChangu and SMTP setup
-
-Set `PAYCHANGU_SECRET_KEY` and `PAYCHANGU_WEBHOOK_SECRET` from the PayChangu dashboard. Set `API_PUBLIC_URL` to the backend's public origin (without `/api`). Configure the PayChangu webhook URL as `https://<api-host>/api/hostel/bookings/paychangu/webhook`. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` for the mailbox that will send booking codes. Use the matching SMTP TLS mode and credentials supplied by your email provider. The frontend's public origin must be included in `FRONTEND_URL`.
+Payment notification emails are sent to active `SUPER_MANAGER` accounts when manual hostel receipts, restaurant/grocery sales, or meal-card funding are recorded. Configure SMTP credentials and a verified sender before enabling email delivery. Payment notifications do not affect whether a transaction is saved.
 
 ## Existing data
 

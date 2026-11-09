@@ -61,18 +61,25 @@ Run the `sudo ...` command PM2 prints, exactly as shown. The deploy workflow run
 Create `/srv/good-morning/shared/app.env`:
 
 ```dotenv
-DATABASE_URL=postgres://good_morning_app:APP_PASSWORD@127.0.0.1:5432/good_morning
-JWT_SECRET=PASTE_A_LONG_RANDOM_SECRET
+DATABASE_URL=
+JWT_SECRET=
 JWT_EXPIRES_IN=12h
 PORT=4000
 FRONTEND_URL=https://www.goodmorningmw.online,https://goodmorningmw.online
 SALE_ERASE_KEY=SET_A_PRIVATE_RANDOM_KEY
+# Brevo SMTP settings for payment notification emails:
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=YOUR_BREVO_SMTP_LOGIN
+SMTP_PASSWORD=YOUR_BREVO_SMTP_KEY
+SMTP_FROM=Good Morning <notifications@your-domain.example>
 ```
 
 Create `/srv/good-morning/shared/deploy.env`:
 
 ```dotenv
-MIGRATION_DATABASE_URL=postgres://good_morning_migrator:MIGRATOR_PASSWORD@127.0.0.1:5432/good_morning
+MIGRATION_DATABASE_URL=
 SEED_SUPER_EMAIL=your-admin-email@example.com
 SEED_SUPER_PASSWORD=CHOOSE_A_LONG_UNIQUE_PASSWORD
 SEED_SUPER_NAME=Your Name
@@ -91,6 +98,8 @@ chmod 600 /srv/good-morning/shared/app.env /srv/good-morning/shared/deploy.env
 Generate a JWT secret on the VPS with `openssl rand -hex 32`. `FRONTEND_URL` accepts a comma-separated list of exact browser origins; include both the `www` and apex domains if users may open either. Keep each origin exact, including `https://` and any non-default port. The app and deployment connection URLs should use the role passwords from step 2.
 
 Set `SALE_ERASE_KEY` to a private random value. Managers must enter that exact value to erase a sale; there is no default key. Generate one on the VPS with `openssl rand -hex 24`, save it in `app.env`, and redeploy so the API receives it.
+
+Payment notifications are sent to active users with the `SUPER_MANAGER` role. In Brevo, copy the SMTP login and generate an SMTP key from **Settings → SMTP & API**; the SMTP key is not your Brevo account password or API key. Use a verified sender address on a domain authenticated with Brevo. Brevo recommends port 587; the service uses STARTTLS on that port. If SMTP is unavailable or the manager account has no valid email, the payment remains recorded and the notification failure is logged by the API.
 
 ## 5. Configure GitHub Actions access
 
