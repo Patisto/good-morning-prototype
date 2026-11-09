@@ -2,9 +2,10 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { pool } from '../db/pool';
 import { config } from '../config';
-import { check, HttpError, transaction } from '../utils/http';
+import { check, HttpError, today, transaction } from '../utils/http';
 import { ensureRentCharges, rentAccount } from './rent';
 import { payChangu, ProviderPayment } from './paychangu';
+import { notifyOwnerOfPayment } from './paymentNotifications';
 
 const cents = (value: string | number) => {
   const s = String(value); const m = s.match(/^(\d+)(?:\.(\d{1,2}))?$/); check(!!m, 'Invalid monetary amount.');
@@ -75,12 +76,14 @@ export class PaymentInitiationService {
 
 export class PaymentVerificationService {
   async verifyAndPost(reference: string, eventId?: string): Promise<string> {
-    const attempt = await pool.query('SELECT * FROM payment_attempts WHERE reference=$1', [reference]);
+    const attempt = await pool.query(`SELECT p.*,t.first_name,t.last_name,c.month AS rental_month
+      FROM payment_attempts p JOIN tenants t ON t.id=p.student_id LEFT JOIN rent_charges c ON c.id=p.rental_invoice_id
+      WHERE p.reference=$1`, [reference]);
     if (!attempt.rowCount) return 'unknown_reference';
     const a = attempt.rows[0]; let verified: ProviderPayment;
     try { verified = await payChangu.verify(reference); } catch { return 'verification_deferred'; }
     const amountMatches = config.allowOverpayment ? cents(verified.amount) >= cents(a.amount) : cents(verified.amount) === cents(a.amount), identityMatches = verified.txRef === a.reference && verified.currency === a.currency;
-    return transaction(async db => {
+    const result = await transaction(async db => {
       const locked = await db.query('SELECT * FROM payment_attempts WHERE id=$1 FOR UPDATE', [a.id]); const row = locked.rows[0];
       if (row.status === 'SUCCEEDED') return 'already_succeeded';
       if (!identityMatches || !amountMatches) { await db.query("UPDATE payment_attempts SET status='PROCESSING',failure_reason='Provider verification mismatch; review required',updated_at=now() WHERE id=$1", [row.id]); return 'mismatch'; }
@@ -88,12 +91,23 @@ export class PaymentVerificationService {
       if (status === 'success' || status === 'succeeded') {
         await db.query("UPDATE payment_attempts SET status='SUCCEEDED',provider_transaction_id=COALESCE($2,provider_transaction_id),paid_at=now(),updated_at=now() WHERE id=$1", [row.id, verified.reference]);
         const allocation = await db.query(`INSERT INTO payment_allocations(payment_attempt_id,student_id,rental_invoice_id,amount) VALUES($1,$2,$3,$4) ON CONFLICT(payment_attempt_id) DO NOTHING RETURNING id`, [row.id, row.student_id, row.rental_invoice_id, row.amount]);
-        if (allocation.rowCount) await db.query(`INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,payment_attempt_id) VALUES($1,$2,'OTHER',CURRENT_DATE,$3) ON CONFLICT (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL DO NOTHING`, [row.rental_invoice_id, row.amount, row.id]);
+        if (allocation.rowCount) await db.query(`INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,payment_attempt_id) VALUES($1,$2,'PAYCHANGU',CURRENT_DATE,$3) ON CONFLICT (payment_attempt_id) WHERE payment_attempt_id IS NOT NULL DO NOTHING`, [row.rental_invoice_id, row.amount, row.id]);
         return 'succeeded';
       }
       if (['failed', 'cancelled', 'expired'].includes(status)) { await db.query('UPDATE payment_attempts SET status=$2,failure_reason=$3,updated_at=now() WHERE id=$1', [row.id, status.toUpperCase(), `Provider status: ${status}`]); return status; }
       await db.query("UPDATE payment_attempts SET status='PROCESSING',updated_at=now() WHERE id=$1", [row.id]); return 'processing';
     });
+    if (result === 'succeeded') {
+      await notifyOwnerOfPayment({
+        business: 'HOSTEL',
+        amount: Number(a.amount),
+        paymentMethod: 'PAYCHANGU',
+        paymentDate: today(),
+        reference: a.reference,
+        details: `${a.first_name} ${a.last_name} · rent ${a.rental_month}`,
+      });
+    }
+    return result;
   }
 }
 

@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS rent_receipts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   charge_id uuid NOT NULL REFERENCES rent_charges(id),
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
-  payment_method text NOT NULL CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER')),
+  payment_method text NOT NULL CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','PAYCHANGU')),
   payment_date date NOT NULL,
   recorded_by uuid REFERENCES users(id),
   legacy_payment_id uuid UNIQUE REFERENCES hostel_payments(id),
@@ -329,6 +329,8 @@ DROP TRIGGER IF EXISTS tenants_phone_normalized_trigger ON tenants;
 CREATE TRIGGER tenants_phone_normalized_trigger BEFORE INSERT OR UPDATE OF phone ON tenants FOR EACH ROW EXECUTE FUNCTION sync_tenant_phone_normalized();
 
 ALTER TABLE rent_receipts ADD COLUMN IF NOT EXISTS payment_attempt_id uuid;
+ALTER TABLE rent_receipts DROP CONSTRAINT IF EXISTS rent_receipts_payment_method_check;
+ALTER TABLE rent_receipts ADD CONSTRAINT rent_receipts_payment_method_check CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','PAYCHANGU'));
 CREATE UNIQUE INDEX IF NOT EXISTS uq_rent_receipts_payment_attempt ON rent_receipts(payment_attempt_id) WHERE payment_attempt_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payment_attempts (
