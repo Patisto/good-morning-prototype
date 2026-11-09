@@ -4,6 +4,7 @@ import { pool } from '../db/pool';
 import { requireAuth, requireSection, requireManager } from '../middleware/auth';
 import { claimRequest, check, date, method, number, route, text, today, transaction } from '../utils/http';
 import { business, inventorySelect, pricedLines } from '../services/inventory';
+import { notifyOwnerOfPayment } from '../services/paymentNotifications';
 /** One implementation keeps restaurant and grocery inventory rules consistent. */
 export function tradingRouter(section: 'restaurant' | 'grocery') {
     const router = Router();
@@ -40,13 +41,14 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
             const phone = typeof b.phone === 'string' ? b.phone.slice(0, 100) : '';
             const balance = number(b.balance, 'Prepaid amount');
             const defaultCharge = number(b.defaultCharge, 'Default meal amount');
-            const id = await transaction(async db => {
+            const card = await transaction(async db => {
                 if (!await claimRequest(db, b.requestId, req.user!.id, `meal-card:${res.locals.business}`)) return null;
                 const created = await db.query('INSERT INTO restaurant_meal_cards(customer_name,phone,balance,default_charge,business) VALUES($1,$2,$3,$4,$5) RETURNING id', [name, phone, balance, defaultCharge, res.locals.business]);
                 if (balance > 0) await db.query('INSERT INTO restaurant_meal_card_funding(meal_card_id,business,amount,date,recorded_by) VALUES($1,$2,$3,$4,$5)', [created.rows[0].id, res.locals.business, balance, today(), req.user!.name]);
-                return created.rows[0].id;
+                return { id: created.rows[0].id, amount: balance };
             });
-            res.json({ id });
+            if (card?.amount) await notifyOwnerOfPayment({ business: res.locals.business, amount: card.amount, paymentMethod: 'PREPAID', paymentDate: today(), reference: card.id, details: `Initial meal card funding for ${name}` });
+            res.json({ id: card?.id ?? null });
         }));
     }
     router.post('/products', requireManager(section), route(async (req, res) => {
@@ -83,7 +85,7 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         // Historical entry can consume stock needed by later sales. Sell on today's date;
         // dated history remains available for review.
         check(day === today(), "Sales must be recorded for today's date.");
-        const id = await transaction(async (db) => {
+        const sale = await transaction(async (db) => {
             if (!await claimRequest(db, req.body.requestId, req.user!.id, `sale:${scope}`))
                 return null;
             const lines = await pricedLines(db, scope, day, req.body.items);
@@ -103,9 +105,12 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         VALUES ($1,$2,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$3,$4,$5,true,$6,$7) RETURNING id`, [scope, day, total, payment, req.user!.name, mealCardId, creditCustomer]);
             for (const line of lines)
                 await db.query('INSERT INTO sale_items(sale_id,item_id,name,quantity,unit_price) VALUES ($1,$2,$3,$4,$5)', [result.rows[0].id, line.itemId, line.name, line.quantity, line.unitPrice]);
-            return result.rows[0].id;
+            return { id: result.rows[0].id, amount: total };
         });
-        res.json({ id });
+        if (sale && payment !== 'CREDIT' && payment !== 'MEAL_CARD') {
+            await notifyOwnerOfPayment({ business: scope, amount: sale.amount, paymentMethod: payment, paymentDate: day, reference: sale.id, details: `Sale recorded by ${req.user!.name}` });
+        }
+        res.json({ id: sale?.id ?? null });
     }));
     router.delete('/sales/:id', requireManager(section), route(async (req, res) => {
         const configuredKey = process.env.SALE_ERASE_KEY;
