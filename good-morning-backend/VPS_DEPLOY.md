@@ -61,8 +61,8 @@ Run the `sudo ...` command PM2 prints, exactly as shown. The deploy workflow run
 Create `/srv/good-morning/shared/app.env`:
 
 ```dotenv
-DATABASE_URL=postgres://good_morning_app:APP_PASSWORD@127.0.0.1:5432/good_morning
-JWT_SECRET=PASTE_A_LONG_RANDOM_SECRET
+DATABASE_URL=
+JWT_SECRET=
 JWT_EXPIRES_IN=12h
 PORT=4000
 FRONTEND_URL=https://www.goodmorningmw.online,https://goodmorningmw.online
@@ -79,7 +79,7 @@ SMTP_FROM=Good Morning <notifications@your-domain.example>
 Create `/srv/good-morning/shared/deploy.env`:
 
 ```dotenv
-MIGRATION_DATABASE_URL=postgres://good_morning_migrator:MIGRATOR_PASSWORD@127.0.0.1:5432/good_morning
+MIGRATION_DATABASE_URL=
 SEED_SUPER_EMAIL=your-admin-email@example.com
 SEED_SUPER_PASSWORD=CHOOSE_A_LONG_UNIQUE_PASSWORD
 SEED_SUPER_NAME=Your Name

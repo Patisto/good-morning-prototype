@@ -4,7 +4,7 @@ The application now saves operational records through the API to PostgreSQL. A c
 
 ## Run the update
 
-Use the backend `.env` with `DATABASE_URL`, `JWT_SECRET`, and `FRONTEND_URL`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`). Email delivery and online payment integrations are not enabled in this release.
+Use the backend `.env` with `DATABASE_URL`, `JWT_SECRET`, `FRONTEND_URL`, SMTP settings, and the PayChangu settings from `good-morning-backend/.env.example`. The frontend uses `VITE_API_URL` (default `http://localhost:4000/api`).
 
 From the project root:
 
@@ -44,6 +44,7 @@ Existing users keep their accounts. For a new empty installation, set `SEED_SUPE
 - **Hostel → Tenants:** register tenants, edit profiles, move rooms, download agreements, and check out tenants. Capacity is enforced by the server. Room assignment history is retained for later billing.
 - **Hostel → Tenants:** authorised hostel staff register tenants in person, assign rooms, update profiles, download accommodation forms, and mark when signed physical forms are received. Admission decisions stay with hostel management.
 - **Hostel → Receive payment:** use the prominent button on the hostel page, a tenant profile, the Payments tab, or Finance. Select the tenant and month, review rent/paid/balance, then record the amount, date, and payment method. A missing monthly charge is created atomically with the payment; generating charges first is no longer required.
+- **Online hostel rent:** host `payment-portal/code.html` as a static page, set its `API_BASE_URL` to the deployed API origin ending in `/api`, and set `PAYCHANGU_RETURN_URL` to that page's public URL. Students look up their account with their registered Malawi phone number. PayChangu sends the signed webhook to the backend; the API independently verifies the transaction before posting a rent receipt.
 - **Hostel → Monthly rent:** generate charges for a month using each tenant’s effective room rate. Missing earlier months are backfilled, unpaid balances carry forward, and overpayments carry as credits. Record partial/full payments, review receipts, and add balance notes. Re-running charge generation does not duplicate existing charges.
 - **Restaurant:** select A (morning) or B (staff afternoon). Register individual sellable items in Configuration, such as chicken wings or thighs, with a unit and price. Receive that day's quantities in Stock, then record sales. Each date and restaurant has separate stock. Extra receipts add to that day's quantity; unsold stock does not automatically carry to the next day.
 - **Grocery:** configure products and prices, receive deliveries, and record sales. Stock carries forward between dates.
@@ -52,6 +53,8 @@ Existing users keep their accounts. For a new empty installation, set `SEED_SUPE
 - **Dashboard:** owners, administrators, super managers, and accountants can choose a date range and view combined revenue, expenses, and net cash, with separate A/B rows. Other staff see links to their permitted workspaces.
 
 Rent is per tenant/bed, with full-month charges for move-in and checkout months. Prices have an effective month; existing monthly charges retain their original amount. Charges are created when receiving a payment or explicitly generated for the whole month; there is no automatic billing schedule. Advance payments may create a future monthly charge at the configured rate, which remains fixed after creation. Unpaid balances and overpayment credits carry into later monthly statements. The same restaurant manager can manage A and B. Dates use Africa/Blantyre. New sales must be recorded on today's date; earlier dates are available for review.
+
+Payment notification emails are sent to active `SUPER_MANAGER` accounts when manual hostel receipts, restaurant/grocery sales, or meal-card funding are recorded. Configure SMTP credentials and a verified sender before enabling email delivery. Payment notifications do not affect whether a transaction is saved.
 
 ## Existing data
 

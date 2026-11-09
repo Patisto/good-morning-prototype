@@ -1,0 +1,2 @@
+-- Applied by the idempotent schema.sql migration. Kept as a reviewable standalone migration record.
+-- See src/db/schema.sql for the additive DDL and phone backfill/trigger.

@@ -8,8 +8,9 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const pool_1 = require("../db/pool");
 const jwt_1 = require("../utils/jwt");
 const auth_1 = require("../middleware/auth");
+const http_1 = require("../utils/http");
 const router = (0, express_1.Router)();
-router.post('/login', async (req, res) => {
+router.post('/login', (0, http_1.route)(async (req, res) => {
     const { email, password } = req.body ?? {};
     if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
         return res.status(400).json({ error: 'Email and password are required.' });
@@ -29,13 +30,13 @@ router.post('/login', async (req, res) => {
         token,
         user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
-});
-router.get('/me', auth_1.requireAuth, async (req, res) => {
+}));
+router.get('/me', auth_1.requireAuth, (0, http_1.route)(async (req, res) => {
     const result = await pool_1.pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [req.user.id]);
     const user = result.rows[0];
     if (!user)
         return res.status(404).json({ error: 'User not found.' });
     res.json({ user });
-});
+}));
 exports.default = router;
 //# sourceMappingURL=auth.routes.js.map
