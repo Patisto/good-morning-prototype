@@ -52,7 +52,7 @@ export const useAuthStore = defineStore('auth', {
                 return ['HOSTEL_MANAGER', 'RESTAURANT_MANAGER', 'GROCERY_MANAGER', 'ACCOUNTANT'].includes(role);
             if (role === 'ACCOUNTANT' || role === 'SYSTEM_ADMINISTRATOR')
                 return false;
-            return role === 'ACCOUNTANT' || role.startsWith(section.toUpperCase() + '_');
+            return role.startsWith(section.toUpperCase() + '_');
         },
     },
     actions: {
