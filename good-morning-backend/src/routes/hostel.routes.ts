@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { ensureRentCharges, rentAccount } from '../services/rent';
+import { notifyOwnerOfPayment } from '../services/paymentNotifications';
 import { pool } from '../db/pool';
 import { requireAuth, requireSection, requireManager } from '../middleware/auth';
 import { claimRequest, check, date, method, month, number, route, text, today, transaction } from '../utils/http';
@@ -44,14 +45,17 @@ router.post('/payments', manage, route(async (req, res) => {
     const amount = number(req.body.amount, 'Payment', 0.01), paymentDate = date(req.body.paymentDate);
     const paymentMethod = method(req.body.paymentMethod);
     check(paymentDate <= today(), 'Payment date cannot be in the future.');
-    await transaction(async (db) => {
+    const payment = await transaction(async (db) => {
         if (!await claimRequest(db, req.body.requestId, req.user!.id, `rent:${tenantId}:${period}`))
-            return;
+            return null;
         await ensureRentCharges(db, tenantId, period);
-        const account = await rentAccount(db, tenantId, period, true);
+        await rentAccount(db, tenantId, period, true);
         const charge = await db.query('SELECT id FROM rent_charges WHERE tenant_id=$1 AND month=$2 FOR UPDATE', [tenantId, period]);
-        await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5)', [charge.rows[0].id, amount, paymentMethod, paymentDate, req.user!.id]);
+        const receipt = await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [charge.rows[0].id, amount, paymentMethod, paymentDate, req.user!.id]);
+        const tenant = await db.query('SELECT first_name,last_name FROM tenants WHERE id=$1', [tenantId]);
+        return { id: receipt.rows[0].id, details: `${tenant.rows[0].first_name} ${tenant.rows[0].last_name} · rent ${period}` };
     });
+    if (payment) await notifyOwnerOfPayment({ business: 'HOSTEL', amount, paymentMethod, paymentDate, reference: payment.id, details: payment.details });
     res.json({ ok: true });
 }));
 router.post('/settings', manage, route(async (req, res) => {
@@ -177,14 +181,17 @@ router.get('/charges/:id/receipts', route(async (req, res) => {
 router.post('/charges/:id/payments', manage, route(async (req, res) => {
     const amount = number(req.body.amount, 'Payment', 0.01), paymentDate = date(req.body.paymentDate), paymentMethod = method(req.body.paymentMethod);
     check(paymentDate <= today(), 'Payment date cannot be in the future.');
-    await transaction(async (db) => {
+    const payment = await transaction(async (db) => {
         if (!await claimRequest(db, req.body.requestId, req.user!.id, `rent:${req.params.id}`))
-            return;
-        const charge = await db.query('SELECT id FROM rent_charges WHERE id=$1 FOR UPDATE', [req.params.id]);
+            return null;
+        const charge = await db.query(`SELECT c.id,c.month,t.first_name,t.last_name FROM rent_charges c
+            JOIN tenants t ON t.id=c.tenant_id WHERE c.id=$1 FOR UPDATE OF c`, [req.params.id]);
         check(charge.rowCount, 'Monthly charge not found.', 404);
         // Keep every receipt, including overpayments; the balance may become a credit.
-        await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5)', [req.params.id, amount, paymentMethod, paymentDate, req.user!.id]);
+        const receipt = await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [req.params.id, amount, paymentMethod, paymentDate, req.user!.id]);
+        return { id: receipt.rows[0].id, details: `${charge.rows[0].first_name} ${charge.rows[0].last_name} · rent ${charge.rows[0].month}` };
     });
+    if (payment) await notifyOwnerOfPayment({ business: 'HOSTEL', amount, paymentMethod, paymentDate, reference: payment.id, details: payment.details });
     res.json({ ok: true });
 }));
 router.post('/charges/:id/notes', manage, route(async (req, res) => {
