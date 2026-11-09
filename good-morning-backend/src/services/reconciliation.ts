@@ -8,4 +8,10 @@ export async function reconcile(reference?: string) {
   await pool.query("UPDATE payment_attempts SET status='EXPIRED',failure_reason='Payment window expired',updated_at=now() WHERE status IN ('PENDING','PROCESSING') AND expires_at<now()");
   return outcomes;
 }
-export function startReconciliationScheduler() { setInterval(() => reconcile().catch(error => console.error('Payment reconciliation failed', error)), config.reconcileIntervalMinutes * 60000).unref(); }
+export function startReconciliationScheduler() {
+  if (!config.paychanguConfigured) {
+    console.warn('PayChangu reconciliation is disabled until payment settings are configured.');
+    return;
+  }
+  setInterval(() => reconcile().catch(error => console.error('Payment reconciliation failed', error)), config.reconcileIntervalMinutes * 60000).unref();
+}

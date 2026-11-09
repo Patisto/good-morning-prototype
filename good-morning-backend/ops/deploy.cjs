@@ -45,10 +45,8 @@ function verifyRoutes(port) {
     const allowedOrigin = cors.stdout.match(/^access-control-allow-origin:\s*(.+)$/im)?.[1]?.trim();
     if (cors.status !== 0 || allowedOrigin !== origin) throw new Error(`CORS check failed for ${origin}; got ${allowedOrigin || 'no Access-Control-Allow-Origin header'}.`);
   }
-  const options = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/registration/options`], { encoding: 'utf8' });
-  if (options.status !== 0 || options.stdout !== '200') throw new Error(`The public student registration route check returned HTTP ${options.stdout || 'no response'}; expected 200.`);
-  const route = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', `${base}/api/hostel/applications`], { encoding: 'utf8' });
-  if (route.status !== 0 || route.stdout !== '401') throw new Error(`The student applications route check returned HTTP ${route.stdout || 'no response'}; expected 401 from the auth guard.`);
+  const hostel = spawnSync('curl', ['--silent', '--show-error', '--output', '/dev/null', '--write-out', '%{http_code}', '--header', 'X-Forwarded-Proto: https', `${base}/api/hostel`], { encoding: 'utf8' });
+  if (hostel.status !== 0 || hostel.stdout !== '401') throw new Error(`The protected hostel route returned HTTP ${hostel.stdout || 'no response'}; expected 401 from the auth guard.`);
 }
 
 try {

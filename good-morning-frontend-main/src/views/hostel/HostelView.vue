@@ -190,7 +190,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
 
   </div>
   <ReceivePaymentModal v-if="paymentTenant!==null" :tenant-id="paymentTenant" @close="paymentTenant=null" @saved="run(()=>hostel.hydrate())" />
-  <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (reviewingApplicationId ? 'Review student application' : selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
+  <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
       <div v-if="selectedRoom && !editing" class="space-y-3 p-5">
         <p class="text-sm text-ink-muted">
           {{ selectedRoom.housingUnit }} · {{ selectedRoom.occupants }}/{{ selectedRoom.capacity }} occupants

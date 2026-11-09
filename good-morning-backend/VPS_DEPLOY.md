@@ -74,6 +74,23 @@ SMTP_SECURE=false
 SMTP_USER=YOUR_BREVO_SMTP_LOGIN
 SMTP_PASSWORD=YOUR_BREVO_SMTP_KEY
 SMTP_FROM=Good Morning <notifications@your-domain.example>
+# PayChangu online hostel rent payments. Leave secrets empty until configured;
+# the API remains available, while online-payment endpoints return 503.
+PAYCHANGU_ENV=test
+PAYCHANGU_BASE_URL=https://api.paychangu.com
+PAYCHANGU_SECRET_KEY=
+PAYCHANGU_WEBHOOK_SECRET=
+PAYCHANGU_CALLBACK_URL=https://api.your-domain.example/api/webhooks/paychangu
+PAYCHANGU_RETURN_URL=https://payments.your-domain.example/
+PAYMENT_CURRENCY=MWK
+ALLOW_PARTIAL_PAYMENTS=true
+MIN_PAYMENT_AMOUNT=0
+ALLOW_OVERPAYMENT=false
+LOOKUP_TOKEN_SECRET=
+LOOKUP_TOKEN_TTL_SECONDS=600
+PAYMENT_PENDING_EXPIRY_MINUTES=60
+RECONCILE_INTERVAL_MINUTES=10
+CORS_ALLOWED_ORIGINS=https://www.goodmorningmw.online,https://goodmorningmw.online,https://payments.your-domain.example
 ```
 
 Create `/srv/good-morning/shared/deploy.env`:
@@ -100,6 +117,8 @@ Generate a JWT secret on the VPS with `openssl rand -hex 32`. `FRONTEND_URL` acc
 Set `SALE_ERASE_KEY` to a private random value. Managers must enter that exact value to erase a sale; there is no default key. Generate one on the VPS with `openssl rand -hex 24`, save it in `app.env`, and redeploy so the API receives it.
 
 Payment notifications are sent to active users with the `SUPER_MANAGER` role. In Brevo, copy the SMTP login and generate an SMTP key from **Settings → SMTP & API**; the SMTP key is not your Brevo account password or API key. Use a verified sender address on a domain authenticated with Brevo. Brevo recommends port 587; the service uses STARTTLS on that port. If SMTP is unavailable or the manager account has no valid email, the payment remains recorded and the notification failure is logged by the API.
+
+PayChangu settings are optional for API startup. To enable online hostel rent payments, set the secret key, webhook secret, public HTTPS callback URL, public payment-page return URL, and a strong random `LOOKUP_TOKEN_SECRET`. Configure the same callback URL in the PayChangu dashboard. Update `payment-portal/code.html` so `API_BASE_URL` points to this API's public `/api` origin. Until these values are configured, manual operations continue and the online payment lookup reports that online payments are unavailable.
 
 ## 5. Configure GitHub Actions access
 

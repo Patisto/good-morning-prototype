@@ -16,6 +16,7 @@ const outstanding = (account: { expectedAmount: number; openingBalance: number; 
 
 export class LookupService {
   async lookup(phone: string) {
+    check(config.paychanguConfigured, 'Online rent payments are not configured.', 503);
     const matches = await pool.query(`SELECT t.id,t.first_name,t.middle_name,t.last_name,t.reg_number,r.identifier AS room,u.name AS hostel
       FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id LEFT JOIN housing_units u ON u.id=r.housing_unit_id
       WHERE t.phone_normalized=$1 AND t.deleted_at IS NULL AND t.checkout_date IS NULL`, [phone]);
@@ -45,6 +46,7 @@ function readToken(raw: unknown): Claims {
 
 export class PaymentInitiationService {
   async initiate(rawToken: unknown, requested: unknown, ip?: string) {
+    check(config.paychanguConfigured, 'Online rent payments are not configured.', 503);
     const token = readToken(rawToken); const amount = money(requested as string | number); check(cents(amount) > 0n, 'Invalid payment amount.');
     const existing = await pool.query(`SELECT reference,checkout_url,status,amount FROM payment_attempts WHERE student_id=$1 AND rental_invoice_id=$2 AND amount=$3 AND status IN ('PENDING','PROCESSING') AND expires_at>now() ORDER BY created_at DESC LIMIT 1`, [token.sub, token.charge, amount]);
     if (existing.rowCount) return { checkout_url: existing.rows[0].checkout_url, reference: existing.rows[0].reference };

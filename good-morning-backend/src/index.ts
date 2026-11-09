@@ -34,10 +34,13 @@ app.use(cors({ origin: (origin, callback) => {
     try { normalized = new URL(origin).origin; } catch { /* Reject malformed origins below. */ }
     callback(null, frontendOrigins.has(normalized));
 } }));
+// Internal deployment health probes use loopback HTTP before traffic passes
+// through the HTTPS proxy. Keep the probe available while enforcing HTTPS on
+// application endpoints.
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use((req, res, next) => { if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') return res.status(400).json({ error: 'HTTPS is required.' }); next(); });
 app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); next(); });
 app.use(express.json());
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/public/rental-payments', publicPaymentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/hostel', hostelRoutes);
