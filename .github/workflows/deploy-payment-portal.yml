@@ -1,0 +1,85 @@
+name: Deploy payment portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'payment-portal/**'
+      - '.github/workflows/deploy-payment-portal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: good-morning-payment-portal-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Package static payment portal
+        env:
+          PAYMENT_API_BASE_URL: ${{ vars.PAYMENT_API_BASE_URL }}
+        run: |
+          set -eu
+          test -n "$PAYMENT_API_BASE_URL" || {
+            echo "ERROR: Add the Actions variable PAYMENT_API_BASE_URL (for example, https://api.goodmorningmw.online/api)"
+            exit 1
+          }
+          mkdir -p release
+          cp payment-portal/code.html release/index.html
+          PAYMENT_API_BASE_URL="$PAYMENT_API_BASE_URL" node -e '
+            const fs = require("node:fs");
+            const file = "release/index.html";
+            const html = fs.readFileSync(file, "utf8");
+            fs.writeFileSync(file, html.replaceAll("__PAYMENT_API_BASE_URL__", process.env.PAYMENT_API_BASE_URL));
+          '
+          if rg -q '__PAYMENT_API_BASE_URL__|http://localhost:4000/api' release/index.html; then
+            echo "ERROR: Payment portal API URL was not configured"
+            exit 1
+          fi
+          tar -czf payment-portal.tar.gz -C release .
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY_B64: ${{ vars.VPS_SSH_KEY_B64 }}
+          VPS_KNOWN_HOSTS: ${{ vars.VPS_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          install -m 700 -d "$HOME/.ssh"
+          test -n "$VPS_SSH_KEY_B64" || { echo "ERROR: Missing Actions variable VPS_SSH_KEY_B64"; exit 1; }
+          printf '%s' "$VPS_SSH_KEY_B64" | base64 --decode > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          ssh-keygen -y -P '' -f "$HOME/.ssh/id_ed25519" > /dev/null
+          test -n "$VPS_KNOWN_HOSTS" || { echo "ERROR: Missing Actions variable VPS_KNOWN_HOSTS"; exit 1; }
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Upload and publish static site
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_PORT: ${{ vars.VPS_PORT }}
+        run: |
+          set -eu
+          test -n "$VPS_HOST" || { echo "ERROR: Missing Actions variable VPS_HOST"; exit 1; }
+          test -n "$VPS_USER" || { echo "ERROR: Missing Actions variable VPS_USER"; exit 1; }
+          VPS_PORT="${VPS_PORT:-22}"
+          ARCHIVE="/tmp/good-morning-payment-${GITHUB_SHA}.tar.gz"
+          scp -i "$HOME/.ssh/id_ed25519" -P "$VPS_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            payment-portal.tar.gz "$VPS_USER@$VPS_HOST:$ARCHIVE"
+          ssh -i "$HOME/.ssh/id_ed25519" -p "$VPS_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "set -eu
+             sudo install -d -o '$VPS_USER' -g '$VPS_USER' /var/www/pay.goodmorningmw.online
+             sudo tar -xzf '$ARCHIVE' -C /var/www/pay.goodmorningmw.online
+             rm -f '$ARCHIVE'
+             sudo chown -R www-data:www-data /var/www/pay.goodmorningmw.online
+             test -s /var/www/pay.goodmorningmw.online/index.html"

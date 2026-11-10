@@ -81,7 +81,7 @@ PAYCHANGU_BASE_URL=https://api.paychangu.com
 PAYCHANGU_SECRET_KEY=
 PAYCHANGU_WEBHOOK_SECRET=
 PAYCHANGU_CALLBACK_URL=https://api.your-domain.example/api/webhooks/paychangu
-PAYCHANGU_RETURN_URL=https://payments.your-domain.example/
+PAYCHANGU_RETURN_URL=https://pay.goodmorningmw.online/
 PAYMENT_CURRENCY=MWK
 ALLOW_PARTIAL_PAYMENTS=true
 MIN_PAYMENT_AMOUNT=0
@@ -90,7 +90,7 @@ LOOKUP_TOKEN_SECRET=
 LOOKUP_TOKEN_TTL_SECONDS=600
 PAYMENT_PENDING_EXPIRY_MINUTES=60
 RECONCILE_INTERVAL_MINUTES=10
-CORS_ALLOWED_ORIGINS=https://www.goodmorningmw.online,https://goodmorningmw.online,https://payments.your-domain.example
+CORS_ALLOWED_ORIGINS=https://www.goodmorningmw.online,https://goodmorningmw.online,https://pay.goodmorningmw.online
 ```
 
 Create `/srv/good-morning/shared/deploy.env`:
@@ -141,7 +141,37 @@ Get the host key line from a trusted connection, or inspect `ssh-keyscan -H -p 2
 
 Point a DNS A record such as `api.example.com` to the VPS static IP. Add an Nginx site that proxies the API hostname to `http://127.0.0.1:4000`, forwarding the original `Host`, `X-Real-IP`, `X-Forwarded-For`, and `X-Forwarded-Proto` headers. Then obtain and renew a TLS certificate for that hostname. The Lightsail and Ubuntu firewalls should allow 80/443 for certificate validation and HTTPS requests. Set `FRONTEND_URL` in `app.env` to the frontend's actual origin.
 
-## 7. Deploy
+## 7. Host the payment portal on the same VPS
+
+The static payment portal is deployed by `.github/workflows/deploy-payment-portal.yml`. It copies `payment-portal/code.html` to `/var/www/pay.goodmorningmw.online/index.html`. It does not run a payment service on the VPS; browser requests go to the API URL configured in GitHub Actions.
+
+### One-time DNS and Nginx setup
+
+1. In the DNS provider for `goodmorningmw.online`, add an **A** record named `pay` pointing to the VPS public static IP. Wait for it to resolve before requesting the certificate.
+2. From the repository root on your computer, copy the included Nginx site config to the VPS (replace the host/user with the same values used by the Actions workflow):
+
+   ```bash
+   scp payment-portal/nginx-pay.goodmorningmw.online.conf ubuntu@YOUR_VPS_HOST:/tmp/pay.goodmorningmw.online.conf
+   ssh ubuntu@YOUR_VPS_HOST 'sudo install -m 644 /tmp/pay.goodmorningmw.online.conf /etc/nginx/sites-available/pay.goodmorningmw.online.conf && sudo ln -s /etc/nginx/sites-available/pay.goodmorningmw.online.conf /etc/nginx/sites-enabled/pay.goodmorningmw.online.conf && sudo nginx -t && sudo systemctl reload nginx && rm /tmp/pay.goodmorningmw.online.conf'
+   ```
+   Replace `ubuntu` with the VPS SSH account. The site root is `/var/www/pay.goodmorningmw.online`.
+3. Issue the HTTPS certificate:
+
+   ```bash
+   sudo certbot --nginx -d pay.goodmorningmw.online
+   ```
+
+   Choose the option to redirect HTTP to HTTPS. Confirm `https://pay.goodmorningmw.online` loads after DNS and certificate issuance.
+
+### GitHub Actions settings and API
+
+The workflow uses the same VPS Actions variables as the backend deployment: `VPS_HOST`, `VPS_USER`, `VPS_PORT` (optional, defaults to 22), `VPS_SSH_KEY_B64`, and `VPS_KNOWN_HOSTS`. The SSH account needs passwordless `sudo` for `install`, `tar`, and `chown`, as it does for backend deployment.
+
+Add the Actions variable `PAYMENT_API_BASE_URL` with the public API base URL, including `/api` (for example `https://api.goodmorningmw.online/api`). Use the actual HTTPS API hostname configured in your Nginx/API deployment. Also add `https://pay.goodmorningmw.online` to `CORS_ALLOWED_ORIGINS` in `/srv/good-morning/shared/app.env`, while keeping any existing allowed origins, then restart/redeploy the API so the new origin is active. Set `PAYCHANGU_RETURN_URL=https://pay.goodmorningmw.online/` in the same file and redeploy the API so PayChangu returns customers to this portal.
+
+Once DNS, Nginx, TLS, and those Actions/environment settings are ready, push changes under `payment-portal/` to `main` or run **Actions → Deploy payment portal → Run workflow**. The first workflow run can publish the files before Nginx is configured; the site becomes reachable after the Nginx and certificate steps above.
+
+## 8. Deploy the API
 
 Push the workflow and setup changes to the GitHub repository's `main` branch, or start **Actions → Build and deploy backend → Run workflow**. The release is built on GitHub and copied to `/srv/good-morning/releases/<commit>`. The workflow does not SSH-clone the repository or build on the VPS. Check `/api/health` through the HTTPS API hostname and use `pm2 status` / `pm2 logs good-morning-api` on the server.
 
