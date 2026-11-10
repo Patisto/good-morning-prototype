@@ -48,7 +48,7 @@ async function addMealCard() {
 }
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (props.section === 'restaurant') void loadMealCards(); });
 watch(business, () => { if (props.section === 'restaurant') void loadMealCards(); }, { immediate: true });
-watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); await promptNewStock(); } });
+watch([tab, date], async ([activeTab]) => { if (activeTab === 'stock') { await run(load); await nextTick(); } });
 function add(product: Product) {
     const line = cart.value.find(l => l.itemId === product.id);
     if (line) {
@@ -61,13 +61,6 @@ function add(product: Product) {
 watch(selectedMealCard, card => { if (card) chargedTotal.value = card.defaultCharge; });
 async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined }); cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; await load(); if (props.section === 'restaurant') await loadMealCards(); }); }
 async function receive() { await run(async () => { await save('/stock', { ...stock.value, date: date.value }); stock.value.quantity = 0; stock.value.notes = ''; await load(); }); }
-async function promptNewStock() {
-    if (entries.value.length) return;
-    if (confirm(`No stock receipts are recorded for ${date.value}. Would you like to record a new stock receipt for this date?`)) {
-        stock.value.productId = products.value[0]?.id ?? '';
-        document.querySelector('select[aria-label="Stock item"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-}
 function edit(product?: Product) { editedProduct.value = product; productEditorOpen.value = true; }
 async function deleteProduct(product: Product) {
     if (confirm(`Delete ${product.name} from the active catalogue? Historical sales will be retained.`))
