@@ -280,7 +280,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         <input v-model="date" class="input" type="date" :max="today()" :disabled="busy" />
       </label>
       <p class="text-sm text-ink-muted">
-        {{ section==='restaurant' ? 'Enter portions available to sell, for example 20 chicken wings and 10 chicken thighs. Stock starts fresh each date; additional receipts increase that day’s quantity.' : 'Grocery stock carries forward. Record each delivery once.' }}
+          Stock carries forward from the previous day after recorded sales. Enter only new deliveries or additional quantities received today.
       </p>
       <form v-if="canManage" class="panel flex flex-wrap items-end gap-3" @submit.prevent="receive">
         <label class="field">
