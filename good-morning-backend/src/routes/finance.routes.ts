@@ -33,6 +33,13 @@ router.get('/', route(async (req, res) => {
     ]);
     res.json({ businesses, summary: summary.rows, entries: entries.rows });
 }));
+router.get('/payment-attempts/:reference', route(async (req, res) => {
+    const result = await pool.query(`SELECT p.reference,p.provider,p.provider_transaction_id,p.status,p.amount,p.currency,p.created_at,p.paid_at,
+      t.id AS student_id,t.first_name,t.last_name,c.month AS period,COALESCE(json_agg(e ORDER BY e.received_at) FILTER (WHERE e.id IS NOT NULL),'[]') AS events
+      FROM payment_attempts p JOIN tenants t ON t.id=p.student_id JOIN rent_charges c ON c.id=p.rental_invoice_id LEFT JOIN payment_events e ON e.payment_attempt_id=p.id
+      WHERE p.reference=$1 GROUP BY p.id,t.id,c.month`, [req.params.reference]);
+    check(result.rowCount, 'Payment not found.', 404); res.json(result.rows[0]);
+}));
 router.post('/transactions/erase', route(async (req, res) => {
     const role = req.user!.role;
     const mayErase = ['OWNER','ADMINISTRATOR','SUPER_MANAGER','HOSTEL_MANAGER','RESTAURANT_MANAGER','GROCERY_MANAGER'].includes(role);

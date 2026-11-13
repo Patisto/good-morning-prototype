@@ -12,7 +12,7 @@ defineEmits<{
     close: [
     ];
 }>();
-type NavSection = 'hostel' | 'restaurant' | 'grocery' | 'finance' | 'users';
+type NavSection = 'hostel' | 'grocery' | 'finance' | 'users';
 const sectionTitle = computed(() => route.name === 'restaurant'
     ? route.query.business === 'RESTAURANT_B' ? 'Lower restaurant' : 'Upper restaurant'
     : ({

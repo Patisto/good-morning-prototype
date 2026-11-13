@@ -7,6 +7,7 @@ exports.pool = void 0;
 const pg_1 = require("pg");
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+pg_1.types.setTypeParser(1082, value => value);
 exports.pool = new pg_1.Pool({
     connectionString: process.env.DATABASE_URL,
 });
