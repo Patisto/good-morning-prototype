@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const crypto_1 = require("crypto");
 const rent_1 = require("../services/rent");
+const paymentNotifications_1 = require("../services/paymentNotifications");
 const phone_1 = require("../services/phone");
 const pool_1 = require("../db/pool");
 const auth_1 = require("../middleware/auth");
@@ -47,14 +48,18 @@ router.post('/payments', manage, (0, http_1.route)(async (req, res) => {
     const amount = (0, http_1.number)(req.body.amount, 'Payment', 0.01), paymentDate = (0, http_1.date)(req.body.paymentDate);
     const paymentMethod = (0, http_1.method)(req.body.paymentMethod);
     (0, http_1.check)(paymentDate <= (0, http_1.today)(), 'Payment date cannot be in the future.');
-    await (0, http_1.transaction)(async (db) => {
+    const payment = await (0, http_1.transaction)(async (db) => {
         if (!await (0, http_1.claimRequest)(db, req.body.requestId, req.user.id, `rent:${tenantId}:${period}`))
-            return;
+            return null;
         await (0, rent_1.ensureRentCharges)(db, tenantId, period);
-        const account = await (0, rent_1.rentAccount)(db, tenantId, period, true);
+        await (0, rent_1.rentAccount)(db, tenantId, period, true);
         const charge = await db.query('SELECT id FROM rent_charges WHERE tenant_id=$1 AND month=$2 FOR UPDATE', [tenantId, period]);
-        await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5)', [charge.rows[0].id, amount, paymentMethod, paymentDate, req.user.id]);
+        const receipt = await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [charge.rows[0].id, amount, paymentMethod, paymentDate, req.user.id]);
+        const tenant = await db.query('SELECT first_name,last_name FROM tenants WHERE id=$1', [tenantId]);
+        return { id: receipt.rows[0].id, details: `${tenant.rows[0].first_name} ${tenant.rows[0].last_name} · rent ${period}` };
     });
+    if (payment)
+        await (0, paymentNotifications_1.notifyOwnerOfPayment)({ business: 'HOSTEL', amount, paymentMethod, paymentDate, reference: payment.id, details: payment.details });
     res.json({ ok: true });
 }));
 router.post('/settings', manage, (0, http_1.route)(async (req, res) => {
@@ -184,14 +189,18 @@ router.get('/charges/:id/receipts', (0, http_1.route)(async (req, res) => {
 router.post('/charges/:id/payments', manage, (0, http_1.route)(async (req, res) => {
     const amount = (0, http_1.number)(req.body.amount, 'Payment', 0.01), paymentDate = (0, http_1.date)(req.body.paymentDate), paymentMethod = (0, http_1.method)(req.body.paymentMethod);
     (0, http_1.check)(paymentDate <= (0, http_1.today)(), 'Payment date cannot be in the future.');
-    await (0, http_1.transaction)(async (db) => {
+    const payment = await (0, http_1.transaction)(async (db) => {
         if (!await (0, http_1.claimRequest)(db, req.body.requestId, req.user.id, `rent:${req.params.id}`))
-            return;
-        const charge = await db.query('SELECT id FROM rent_charges WHERE id=$1 FOR UPDATE', [req.params.id]);
+            return null;
+        const charge = await db.query(`SELECT c.id,c.month,t.first_name,t.last_name FROM rent_charges c
+            JOIN tenants t ON t.id=c.tenant_id WHERE c.id=$1 FOR UPDATE OF c`, [req.params.id]);
         (0, http_1.check)(charge.rowCount, 'Monthly charge not found.', 404);
         // Keep every receipt, including overpayments; the balance may become a credit.
-        await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5)', [req.params.id, amount, paymentMethod, paymentDate, req.user.id]);
+        const receipt = await db.query('INSERT INTO rent_receipts(charge_id,amount,payment_method,payment_date,recorded_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [req.params.id, amount, paymentMethod, paymentDate, req.user.id]);
+        return { id: receipt.rows[0].id, details: `${charge.rows[0].first_name} ${charge.rows[0].last_name} · rent ${charge.rows[0].month}` };
     });
+    if (payment)
+        await (0, paymentNotifications_1.notifyOwnerOfPayment)({ business: 'HOSTEL', amount, paymentMethod, paymentDate, reference: payment.id, details: payment.details });
     res.json({ ok: true });
 }));
 router.post('/charges/:id/notes', manage, (0, http_1.route)(async (req, res) => {

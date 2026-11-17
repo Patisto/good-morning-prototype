@@ -46,7 +46,7 @@ async function addMealCard() {
         await api.post(`/restaurant/meal-cards?business=${business.value}`, mealCardDraft.value, auth.token);
         mealCardDraft.value = { customerName: '', phone: '', balance: 0, defaultCharge: 0 };
         await loadMealCards();
-    });ll
+    });
 }
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (props.section === 'restaurant') void loadMealCards(); });
 watch(business, () => { if (props.section === 'restaurant') void loadMealCards(); }, { immediate: true });

@@ -3,9 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.payChangu = exports.PayChanguService = void 0;
+exports.payChangu = exports.PayChanguService = exports.payChanguOperators = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const config_1 = require("../config");
+exports.payChanguOperators = {
+    AIRTEL_MONEY: '20be6c20-adeb-4b5b-a7ba-0769820df4fb',
+    TNM_MPAMBA: '27494cb5-ba9e-437f-a114-4e7a7686bcca',
+};
 class PayChanguService {
     async request(path, init, retries = 0) {
         for (let attempt = 0;; attempt++) {
@@ -55,6 +59,43 @@ class PayChanguService {
         if (!data)
             throw new Error('PayChangu verification returned no transaction.');
         return { txRef: String(data.tx_ref || ''), reference: data.reference == null ? null : String(data.reference), amount: String(data.amount), currency: String(data.currency), status: String(data.status).toLowerCase() };
+    }
+    async initializeDirectCharge(input) {
+        const body = await this.request('/mobile-money/payments/initialize', {
+            method: 'POST',
+            body: JSON.stringify({
+                mobile: input.mobile,
+                mobile_money_operator_ref_id: input.operatorRef,
+                amount: input.amount,
+                charge_id: input.chargeId,
+                first_name: input.firstName,
+                last_name: input.lastName,
+            }),
+        });
+        const data = body?.data;
+        if (!['success', 'successful'].includes(String(body?.status).toLowerCase()) || !data?.charge_id) {
+            throw new Error('PayChangu did not accept the mobile money charge.');
+        }
+        return {
+            chargeId: String(data.charge_id),
+            providerReference: data.ref_id == null ? null : String(data.ref_id),
+            amount: String(data.amount),
+            currency: String(data.currency),
+            status: String(data.status).toLowerCase(),
+        };
+    }
+    async verifyDirectCharge(chargeId) {
+        const body = await this.request(`/mobile-money/payments/${encodeURIComponent(chargeId)}/verify`, { method: 'GET' }, 2);
+        const data = body?.data;
+        if (!data)
+            throw new Error('PayChangu direct-charge verification returned no transaction.');
+        return {
+            chargeId: String(data.charge_id || chargeId),
+            providerReference: data.ref_id == null ? null : String(data.ref_id),
+            amount: String(data.amount),
+            currency: String(data.currency),
+            status: String(data.status).toLowerCase(),
+        };
     }
     validWebhookSignature(raw, signature) {
         if (!signature || !config_1.config.paychanguWebhookSecret)

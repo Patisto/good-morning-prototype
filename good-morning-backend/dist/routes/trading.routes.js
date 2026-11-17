@@ -7,6 +7,8 @@ const pool_1 = require("../db/pool");
 const auth_1 = require("../middleware/auth");
 const http_1 = require("../utils/http");
 const inventory_1 = require("../services/inventory");
+const paymentNotifications_1 = require("../services/paymentNotifications");
+const groceryPayment_1 = require("../services/groceryPayment");
 /** One implementation keeps restaurant and grocery inventory rules consistent. */
 function tradingRouter(section) {
     const router = (0, express_1.Router)();
@@ -32,6 +34,26 @@ function tradingRouter(section) {
         ]);
         res.json({ products: products.rows.map(p => ({ ...p, current_stock: Number(p.received) - Number(p.sold) })), sales: sales.rows, entries: entries.rows });
     }));
+    if (section === 'grocery') {
+        router.post('/payments/initiate', (0, http_1.route)(async (req, res) => {
+            const result = await groceryPayment_1.groceryPaymentService.initiate({
+                amount: req.body.amount,
+                network: req.body.network,
+                phone: req.body.phone,
+                items: req.body.items,
+                requestId: req.body.requestId,
+                userId: req.user.id,
+                cashier: req.user.name,
+            });
+            res.json(result);
+        }));
+        router.get('/payments/:reference/status', (0, http_1.route)(async (req, res) => {
+            const result = await groceryPayment_1.groceryPaymentService.verifyAndPost(req.params.reference);
+            const payment = await pool_1.pool.query('SELECT reference,amount,network,status,sale_id,failure_reason FROM grocery_payment_attempts WHERE reference=$1 OR charge_id=$1', [req.params.reference]);
+            (0, http_1.check)(payment.rowCount, 'Payment not found.', 404);
+            res.json({ ...payment.rows[0], verification: result });
+        }));
+    }
     if (section === 'restaurant') {
         router.get('/meal-cards', (0, http_1.route)(async (_req, res) => {
             const result = await pool_1.pool.query('SELECT id,customer_name,phone,balance,default_charge,business,active FROM restaurant_meal_cards WHERE business=$1 AND active=true ORDER BY customer_name', [res.locals.business]);
@@ -43,15 +65,17 @@ function tradingRouter(section) {
             const phone = typeof b.phone === 'string' ? b.phone.slice(0, 100) : '';
             const balance = (0, http_1.number)(b.balance, 'Prepaid amount');
             const defaultCharge = (0, http_1.number)(b.defaultCharge, 'Default meal amount');
-            const id = await (0, http_1.transaction)(async (db) => {
+            const card = await (0, http_1.transaction)(async (db) => {
                 if (!await (0, http_1.claimRequest)(db, b.requestId, req.user.id, `meal-card:${res.locals.business}`))
                     return null;
                 const created = await db.query('INSERT INTO restaurant_meal_cards(customer_name,phone,balance,default_charge,business) VALUES($1,$2,$3,$4,$5) RETURNING id', [name, phone, balance, defaultCharge, res.locals.business]);
                 if (balance > 0)
                     await db.query('INSERT INTO restaurant_meal_card_funding(meal_card_id,business,amount,date,recorded_by) VALUES($1,$2,$3,$4,$5)', [created.rows[0].id, res.locals.business, balance, (0, http_1.today)(), req.user.name]);
-                return created.rows[0].id;
+                return { id: created.rows[0].id, amount: balance };
             });
-            res.json({ id });
+            if (card?.amount)
+                await (0, paymentNotifications_1.notifyOwnerOfPayment)({ business: res.locals.business, amount: card.amount, paymentMethod: 'PREPAID', paymentDate: (0, http_1.today)(), reference: card.id, details: `Initial meal card funding for ${name}` });
+            res.json({ id: card?.id ?? null });
         }));
     }
     router.post('/products', (0, auth_1.requireManager)(section), (0, http_1.route)(async (req, res) => {
@@ -88,7 +112,7 @@ function tradingRouter(section) {
         // Historical entry can consume stock needed by later sales. Sell on today's date;
         // dated history remains available for review.
         (0, http_1.check)(day === (0, http_1.today)(), "Sales must be recorded for today's date.");
-        const id = await (0, http_1.transaction)(async (db) => {
+        const sale = await (0, http_1.transaction)(async (db) => {
             if (!await (0, http_1.claimRequest)(db, req.body.requestId, req.user.id, `sale:${scope}`))
                 return null;
             const lines = await (0, inventory_1.pricedLines)(db, scope, day, req.body.items);
@@ -108,9 +132,12 @@ function tradingRouter(section) {
         VALUES ($1,$2,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$3,$4,$5,true,$6,$7) RETURNING id`, [scope, day, total, payment, req.user.name, mealCardId, creditCustomer]);
             for (const line of lines)
                 await db.query('INSERT INTO sale_items(sale_id,item_id,name,quantity,unit_price) VALUES ($1,$2,$3,$4,$5)', [result.rows[0].id, line.itemId, line.name, line.quantity, line.unitPrice]);
-            return result.rows[0].id;
+            return { id: result.rows[0].id, amount: total };
         });
-        res.json({ id });
+        if (sale && payment !== 'CREDIT' && payment !== 'MEAL_CARD') {
+            await (0, paymentNotifications_1.notifyOwnerOfPayment)({ business: scope, amount: sale.amount, paymentMethod: payment, paymentDate: day, reference: sale.id, details: `Sale recorded by ${req.user.name}` });
+        }
+        res.json({ id: sale?.id ?? null });
     }));
     router.delete('/sales/:id', (0, auth_1.requireManager)(section), (0, http_1.route)(async (req, res) => {
         const configuredKey = process.env.SALE_ERASE_KEY;

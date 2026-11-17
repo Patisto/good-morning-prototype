@@ -9,13 +9,13 @@ function business(value) {
     (0, http_1.check)(['RESTAURANT_A', 'RESTAURANT_B', 'GROCERY'].includes(String(value)), 'Choose Upper Restaurant, Lower Restaurant, or Grocery.');
     return value;
 }
-// Restaurant stock belongs to a service date. Grocery stock carries forward.
+// Stock carries forward for all businesses: opening stock is prior receipts less prior sales.
 exports.inventorySelect = `SELECT p.*,
   COALESCE((SELECT SUM(e.quantity) FROM stock_entries e WHERE e.product_id=p.id
-    AND (CASE WHEN p.business='GROCERY' THEN e.date <= $2::date ELSE e.date=$2::date END)),0) AS received,
+    AND e.date <= $2::date),0) AS received,
   COALESCE((SELECT SUM(i.quantity) FROM sale_items i JOIN sales s ON s.id=i.sale_id
     WHERE i.item_id=p.id::text AND s.inventory_tracked AND s.status='COMPLETED'
-    AND (CASE WHEN p.business='GROCERY' THEN s.date <= $2::date ELSE s.date=$2::date END)),0) AS sold
+    AND s.date <= $2::date),0) AS sold
   FROM business_products p WHERE p.business=$1 AND p.archived_at IS NULL ORDER BY p.name`;
 function normalizeLines(value) {
     (0, http_1.check)(Array.isArray(value) && value.length > 0 && value.length <= 200, 'Add between 1 and 200 sale items.');
