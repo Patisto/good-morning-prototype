@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS restaurant_meal_cards (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE sales DROP CONSTRAINT IF EXISTS sales_payment_method_check;
-ALTER TABLE sales ADD CONSTRAINT sales_payment_method_check CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','CREDIT','MEAL_CARD'));
+ALTER TABLE sales ADD CONSTRAINT sales_payment_method_check CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','CREDIT','MEAL_CARD','PAYCHANGU'));
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS meal_card_id uuid REFERENCES restaurant_meal_cards(id);
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS credit_customer text;
 CREATE TABLE IF NOT EXISTS restaurant_meal_card_funding (
@@ -359,3 +359,40 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
   amount numeric(12,2) NOT NULL CHECK (amount > 0), created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_allocations_attempt ON payment_allocations(payment_attempt_id);
+
+-- Authenticated grocery direct-charge payments. Kept separate from public rent
+-- attempts because a grocery payment is posted as a sale only after verification.
+CREATE TABLE IF NOT EXISTS grocery_payment_attempts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference text NOT NULL UNIQUE,
+  charge_id text NOT NULL UNIQUE,
+  provider_transaction_id text,
+  business text NOT NULL CHECK (business='GROCERY'),
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  currency text NOT NULL,
+  network text NOT NULL CHECK (network IN ('AIRTEL_MONEY','TNM_MPAMBA')),
+  phone text NOT NULL,
+  items jsonb NOT NULL,
+  cashier text NOT NULL,
+  status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','EXPIRED')),
+  failure_reason text,
+  request_id text UNIQUE,
+  sale_id uuid UNIQUE REFERENCES sales(id),
+  paid_at timestamptz,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_grocery_payment_provider_transaction ON grocery_payment_attempts(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS grocery_payment_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  grocery_payment_attempt_id uuid REFERENCES grocery_payment_attempts(id),
+  provider_event_id text,
+  event_type text NOT NULL,
+  payload_hash text NOT NULL UNIQUE,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  signature_valid boolean NOT NULL,
+  processed boolean NOT NULL DEFAULT false,
+  received_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_grocery_payment_provider_event ON grocery_payment_events(provider_event_id) WHERE provider_event_id IS NOT NULL;

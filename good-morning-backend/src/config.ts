@@ -32,4 +32,5 @@ export const config = {
   rateLimitInitiate: Number(process.env.RATE_LIMIT_INITIATE_PER_MINUTE || 5),
   rateLimitStatus: Number(process.env.RATE_LIMIT_STATUS_PER_MINUTE || 30),
   paychanguConfigured: Boolean(paychanguSecretKey && paychanguWebhookSecret && paychanguCallbackUrl && paychanguReturnUrl && lookupTokenSecret),
+  paychanguDirectConfigured: Boolean(paychanguSecretKey && paychanguWebhookSecret),
 };

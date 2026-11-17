@@ -37,7 +37,7 @@ export function useTrading(section: 'restaurant' | 'grocery') {
     async function sell(items: {
         itemId: string;
         quantity: number;
-    }[], paymentMethod: PaymentMethod, extras: { chargedTotal?: number; mealCardId?: string; creditCustomer?: string } = {}) {
+    }[], paymentMethod: PaymentMethod, extras: { chargedTotal?: number; mealCardId?: string; creditCustomer?: string; network?: string; phone?: string } = {}) {
         await save('/sales', { date: date.value, items, paymentMethod, ...extras });
     }
     watch([business, date], () => {

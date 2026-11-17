@@ -1,5 +1,5 @@
 export type Role = 'SUPER_MANAGER' | 'OWNER' | 'ADMINISTRATOR' | 'HOSTEL_MANAGER' | 'RESTAURANT_MANAGER' | 'RESTAURANT_CASHIER' | 'GROCERY_MANAGER' | 'GROCERY_CASHIER' | 'ACCOUNTANT' | 'SYSTEM_ADMINISTRATOR';
-export type PaymentMethod = 'CASH' | 'AIRTEL_MONEY' | 'TNM_MPAMBA' | 'BANK' | 'OTHER' | 'CREDIT' | 'MEAL_CARD';
+export type PaymentMethod = 'CASH' | 'AIRTEL_MONEY' | 'TNM_MPAMBA' | 'BANK' | 'OTHER' | 'CREDIT' | 'MEAL_CARD' | 'PAYCHANGU';
 export type SyncStatus = 'SYNCED' | 'PENDING' | 'FAILED';
 export type RoomType = 'SINGLE' | 'DOUBLE';
 export type RoomStatus = 'OCCUPIED' | 'PARTIAL' | 'VACANT';
