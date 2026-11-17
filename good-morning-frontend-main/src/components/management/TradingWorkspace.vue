@@ -25,6 +25,8 @@ type MealCard = { id: string; customerName: string; phone: string; balance: numb
 const mealCards = ref<MealCard[]>([]), selectedMealCardId = ref(''), chargedTotal = ref<number | null>(null);
 const mealCardDraft = ref({ customerName: '', phone: '', balance: 0, defaultCharge: 0 });
 const creditCustomer = ref('');
+const mobileNetwork = ref<'AIRTEL_MONEY' | 'TNM_MPAMBA'>('AIRTEL_MONEY'), customerPhone = ref('');
+const paymentStatus = ref('');
 const calculator = ref({ paid: 0 });
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
 const filtered = computed(() => products.value.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(search.value.toLowerCase())));
@@ -32,7 +34,7 @@ const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - cartTotal.value));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
-const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT']);
+const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','PAYCHANGU']);
 const selectedMealCard = computed(() => mealCards.value.find(card => card.id === selectedMealCardId.value));
 async function loadMealCards() {
     if (props.section !== 'restaurant') return;
@@ -44,7 +46,7 @@ async function addMealCard() {
         await api.post(`/restaurant/meal-cards?business=${business.value}`, mealCardDraft.value, auth.token);
         mealCardDraft.value = { customerName: '', phone: '', balance: 0, defaultCharge: 0 };
         await loadMealCards();
-    });
+    });ll
 }
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (props.section === 'restaurant') void loadMealCards(); });
 watch(business, () => { if (props.section === 'restaurant') void loadMealCards(); }, { immediate: true });
@@ -59,7 +61,28 @@ function add(product: Product) {
         cart.value.push({ itemId: product.id, quantity: Math.min(1, product.currentStock) });
 }
 watch(selectedMealCard, card => { if (card) chargedTotal.value = card.defaultCharge; });
-async function checkout() { await run(async () => { await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined }); cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; await load(); if (props.section === 'restaurant') await loadMealCards(); }); }
+async function checkout() {
+    await run(async () => {
+        if (paymentMethod.value !== 'PAYCHANGU') {
+            await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined });
+        } else {
+            paymentStatus.value = 'Submitting payment request…';
+            const initiated = await api.post<{ reference: string; status: string }>('/grocery/payments/initiate', { amount: cartTotal.value, items: cart.value, network: mobileNetwork.value, phone: customerPhone.value }, auth.token);
+            paymentStatus.value = 'Waiting for customer authorization on their phone…';
+            const started = Date.now();
+            let result: { status: string } = initiated;
+            while (['PENDING', 'PROCESSING'].includes(result.status) && Date.now() - started < 120000) {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                result = await api.get<{ status: string }>(`/grocery/payments/${encodeURIComponent(initiated.reference)}/status`, auth.token);
+                if (result.status === 'SUCCEEDED') break;
+            }
+            if (result.status !== 'SUCCEEDED') throw new Error(result.status === 'PENDING' || result.status === 'PROCESSING' ? 'Payment is still pending. Refresh the sale status before retrying.' : `Payment ${result.status.toLowerCase()}.`);
+            paymentStatus.value = 'Payment successful. Sale recorded.';
+        }
+        cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; customerPhone.value = '';
+        await load(); if (props.section === 'restaurant') await loadMealCards();
+    });
+}
 async function receive() { await run(async () => { await save('/stock', { ...stock.value, date: date.value }); stock.value.quantity = 0; stock.value.notes = ''; await load(); }); }
 function edit(product?: Product) { editedProduct.value = product; productEditorOpen.value = true; }
 async function deleteProduct(product: Product) {
@@ -206,11 +229,24 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
             </label>
             <p v-if="selectedMealCard" class="text-xs text-ink-muted">Default {{ formatMWK(selectedMealCard.defaultCharge) }} · remaining balance {{ formatMWK(selectedMealCard.balance) }}</p>
           </template>
+          <template v-if="paymentMethod === 'PAYCHANGU'">
+            <label class="field">Mobile money network
+              <select v-model="mobileNetwork" class="input">
+                <option value="AIRTEL_MONEY">Airtel Money</option>
+                <option value="TNM_MPAMBA">TNM Mpamba</option>
+              </select>
+            </label>
+            <label class="field">Customer phone number
+              <input v-model="customerPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="0999 123 456" required>
+            </label>
+            <p class="text-sm text-ink-muted" role="status">The customer authorizes the request on their phone. Never ask for their PIN.</p>
+            <p v-if="paymentStatus" class="text-sm" role="status">{{ paymentStatus }}</p>
+          </template>
           <p class="text-xl font-semibold">
             {{ formatMWK(paymentMethod === 'MEAL_CARD' && chargedTotal !== null ? chargedTotal : cartTotal) }}
           </p>
-          <button class="btn" :disabled="busy || !cart.length || (paymentMethod === 'MEAL_CARD' && (!selectedMealCardId || !chargedTotal)) || (paymentMethod === 'CREDIT' && !creditCustomer.trim())">
-            Record sale
+          <button class="btn" :disabled="busy || !cart.length || (paymentMethod === 'MEAL_CARD' && (!selectedMealCardId || !chargedTotal)) || (paymentMethod === 'CREDIT' && !creditCustomer.trim()) || (paymentMethod === 'PAYCHANGU' && !customerPhone.trim())">
+            {{ paymentMethod === 'PAYCHANGU' ? 'Request payment' : 'Record sale' }}
           </button>
         </form>
       </div>
