@@ -5,6 +5,7 @@ import { requireAuth, requireSection, requireManager } from '../middleware/auth'
 import { claimRequest, check, date, method, number, route, text, today, transaction } from '../utils/http';
 import { business, inventorySelect, pricedLines } from '../services/inventory';
 import { notifyOwnerOfPayment } from '../services/paymentNotifications';
+import { groceryPaymentService } from '../services/groceryPayment';
 /** One implementation keeps restaurant and grocery inventory rules consistent. */
 export function tradingRouter(section: 'restaurant' | 'grocery') {
     const router = Router();
@@ -30,6 +31,26 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         ]);
         res.json({ products: products.rows.map(p => ({ ...p, current_stock: Number(p.received) - Number(p.sold) })), sales: sales.rows, entries: entries.rows });
     }));
+    if (section === 'grocery') {
+        router.post('/payments/initiate', route(async (req, res) => {
+            const result = await groceryPaymentService.initiate({
+                amount: req.body.amount,
+                network: req.body.network,
+                phone: req.body.phone,
+                items: req.body.items,
+                requestId: req.body.requestId,
+                userId: req.user!.id,
+                cashier: req.user!.name,
+            });
+            res.json(result);
+        }));
+        router.get('/payments/:reference/status', route(async (req, res) => {
+            const result = await groceryPaymentService.verifyAndPost(req.params.reference);
+            const payment = await pool.query('SELECT reference,amount,network,status,sale_id,failure_reason FROM grocery_payment_attempts WHERE reference=$1 OR charge_id=$1', [req.params.reference]);
+            check(payment.rowCount, 'Payment not found.', 404);
+            res.json({ ...payment.rows[0], verification: result });
+        }));
+    }
     if (section === 'restaurant') {
         router.get('/meal-cards', route(async (_req, res) => {
             const result = await pool.query('SELECT id,customer_name,phone,balance,default_charge,business,active FROM restaurant_meal_cards WHERE business=$1 AND active=true ORDER BY customer_name', [res.locals.business]);
