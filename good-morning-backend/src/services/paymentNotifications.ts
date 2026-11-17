@@ -8,6 +8,7 @@ export type PaymentNotification = {
     paymentDate: string;
     reference: string;
     details: string;
+    payer?: string;
 };
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({
@@ -21,6 +22,7 @@ function paymentEmail(payment: PaymentNotification) {
         ['Amount received', `MWK ${formatAmount(payment.amount)}`],
         ['Payment method', payment.paymentMethod.replace(/_/g, ' ')],
         ['Payment date', payment.paymentDate],
+        ...(payment.payer ? [['Paid by', payment.payer] as [string, string]] : []),
         ['Details', payment.details],
         ['Reference', payment.reference],
     ];

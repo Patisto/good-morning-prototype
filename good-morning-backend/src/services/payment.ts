@@ -12,7 +12,8 @@ const cents = (value: string | number) => {
   return BigInt(m![1]) * 100n + BigInt((m![2] || '').padEnd(2, '0') || '0');
 };
 const money = (value: string | number) => (Number(cents(value)) / 100).toFixed(2);
-const outstanding = (account: { expectedAmount: number; openingBalance: number; amountPaid: number }) => money(account.expectedAmount + account.openingBalance - account.amountPaid);
+const totalMoney = (...values: number[]) => values.reduce((total, value) => total + value, 0).toFixed(2);
+const outstanding = (account: { expectedAmount: number; openingBalance: number; amountPaid: number }) => totalMoney(account.expectedAmount, account.openingBalance, -account.amountPaid);
 
 export class LookupService {
   async lookup(phone: string) {
@@ -29,11 +30,11 @@ export class LookupService {
       return {
         status: 'no_balance',
         student: { display_name: [t.first_name, t.middle_name, t.last_name].filter(Boolean).join(' '), student_number: t.reg_number || '', hostel: t.hostel || '', room: t.room || '' },
-        rental: { period, currency: config.currency, amount_due: money(account.expectedAmount + account.openingBalance), amount_paid: money(account.amountPaid), outstanding_balance: balance },
+        rental: { period, currency: config.currency, amount_due: totalMoney(account.expectedAmount, account.openingBalance), amount_paid: totalMoney(account.amountPaid), outstanding_balance: balance },
       };
     }
     const token = jwt.sign({ sub: t.id, charge: account.chargeId, period, balance }, config.lookupTokenSecret, { expiresIn: config.lookupTokenTtl });
-    return { student: { display_name: [t.first_name, t.middle_name, t.last_name].filter(Boolean).join(' '), student_number: t.reg_number || '', hostel: t.hostel || '', room: t.room || '' }, rental: { period, currency: config.currency, amount_due: money(account.expectedAmount + account.openingBalance), amount_paid: money(account.amountPaid), outstanding_balance: balance }, lookup_token: token };
+    return { student: { display_name: [t.first_name, t.middle_name, t.last_name].filter(Boolean).join(' '), student_number: t.reg_number || '', hostel: t.hostel || '', room: t.room || '' }, rental: { period, currency: config.currency, amount_due: totalMoney(account.expectedAmount, account.openingBalance), amount_paid: totalMoney(account.amountPaid), outstanding_balance: balance }, lookup_token: token };
   }
 }
 
@@ -78,7 +79,7 @@ export class PaymentInitiationService {
 
 export class PaymentVerificationService {
   async verifyAndPost(reference: string, eventId?: string): Promise<string> {
-    const attempt = await pool.query(`SELECT p.*,t.first_name,t.last_name,c.month AS rental_month
+    const attempt = await pool.query(`SELECT p.*,t.first_name,t.middle_name,t.last_name,t.reg_number,c.month AS rental_month
       FROM payment_attempts p JOIN tenants t ON t.id=p.student_id LEFT JOIN rent_charges c ON c.id=p.rental_invoice_id
       WHERE p.reference=$1`, [reference]);
     if (!attempt.rowCount) return 'unknown_reference';
@@ -106,7 +107,8 @@ export class PaymentVerificationService {
         paymentMethod: 'PAYCHANGU',
         paymentDate: today(),
         reference: a.reference,
-        details: `${a.first_name} ${a.last_name} · rent ${a.rental_month}`,
+        payer: [a.first_name, a.middle_name, a.last_name].filter(Boolean).join(' ') + (a.reg_number ? ` (${a.reg_number})` : ''),
+        details: `Rent for ${a.rental_month}`,
       });
     }
     return result;
