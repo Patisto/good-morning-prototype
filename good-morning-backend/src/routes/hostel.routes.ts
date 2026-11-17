@@ -19,7 +19,8 @@ router.post('/registration-invites', manage, route(async (req, res) => {
     const tokenHash = createHash('sha256').update(token).digest('hex');
     await pool.query(`INSERT INTO tenant_registration_invites(phone_normalized,token_hash) VALUES($1,$2)
       ON CONFLICT(phone_normalized) DO UPDATE SET token_hash=EXCLUDED.token_hash,status='INVITED',applicant=NULL,preferred_room_id=NULL,submitted_at=NULL,updated_at=now()`, [phone, tokenHash]);
-    res.json({ url: `${req.protocol}://${req.get('host').replace(/\/api$/, '')}/hostel/register/${token}` });
+    const frontendUrl = (process.env.FRONTEND_URL?.split(',')[0]?.trim() || `${req.protocol}://${req.get('host') ?? ''}`).replace(/\/+$/, '');
+    res.json({ url: `${frontendUrl}/hostel/register/${token}` });
 }));
 router.post('/registration-invites/:id/approve', manage, route(async (req, res) => {
     const roomId = text(req.body.roomId, 'Room');
