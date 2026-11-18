@@ -6,6 +6,7 @@ import { claimRequest, check, date, method, number, route, text, today, transact
 import { business, inventorySelect, pricedLines } from '../services/inventory';
 import { notifyOwnerOfPayment } from '../services/paymentNotifications';
 import { groceryPaymentService } from '../services/groceryPayment';
+import { restaurantPaymentService } from '../services/restaurantPayment';
 /** One implementation keeps restaurant and grocery inventory rules consistent. */
 export function tradingRouter(section: 'restaurant' | 'grocery') {
     const router = Router();
@@ -53,6 +54,24 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         }));
     }
     if (section === 'restaurant') {
+        router.post('/payments/initiate', route(async (req, res) => {
+            const result = await restaurantPaymentService.initiate({
+                business: res.locals.business,
+                amount: req.body.amount,
+                phone: req.body.phone,
+                network: req.body.network,
+                items: req.body.items,
+                requestId: req.body.requestId,
+                cashier: req.user!.name,
+            });
+            res.json(result);
+        }));
+        router.get('/payments/:reference/status', route(async (req, res) => {
+            const result = await restaurantPaymentService.verifyAndPost(req.params.reference);
+            const payment = await pool.query('SELECT reference,amount,network,status,sale_id,failure_reason FROM restaurant_payment_attempts WHERE reference=$1 OR charge_id=$1', [req.params.reference]);
+            check(payment.rowCount, 'Payment not found.', 404);
+            res.json({ ...payment.rows[0], verification: result });
+        }));
         router.get('/meal-cards', route(async (_req, res) => {
             const result = await pool.query('SELECT id,customer_name,phone,balance,default_charge,business,active FROM restaurant_meal_cards WHERE business=$1 AND active=true ORDER BY customer_name', [res.locals.business]);
             res.json(result.rows);

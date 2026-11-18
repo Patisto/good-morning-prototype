@@ -5,9 +5,13 @@
 - Added direct-charge initialization and verification to the backend PayChangu
   client.
 - Added authenticated grocery payment initiation and status endpoints.
+- Added authenticated restaurant payment initiation and status endpoints.
 - Added signed, idempotent webhook handling for grocery attempts.
+- Added signed, idempotent webhook handling for restaurant attempts.
 - Added additive grocery payment-attempt and event tables and the `PAYCHANGU`
   sale payment method.
+- Added additive restaurant payment-attempt and event tables. Verified
+  restaurant attempts post into the existing sales ledger.
 - Added network, phone, pending, and success/failure states to the existing
   grocery checkout.
 
@@ -21,7 +25,8 @@ Set `PAYCHANGU_SECRET_KEY`, `PAYCHANGU_WEBHOOK_SECRET`, and
 
 The backend recalculates the cart, checks stock and amount, verifies the
 charge amount/currency/reference, locks the attempt, and posts the sale once.
-The existing rent PayChangu flow remains separate.
+The existing rent PayChangu flow remains separate. Restaurant PayChangu uses
+Direct Charge and supports Airtel Money and TNM Mpamba.
 
 ## Limitations
 
