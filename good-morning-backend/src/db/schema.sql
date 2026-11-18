@@ -237,9 +237,15 @@ CREATE TABLE IF NOT EXISTS rent_receipts (
   payment_method text NOT NULL CHECK (payment_method IN ('CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','OTHER','PAYCHANGU')),
   payment_date date NOT NULL,
   recorded_by uuid REFERENCES users(id),
+  reversed_at timestamptz,
+  reversed_by uuid REFERENCES users(id),
+  reversal_reason text NOT NULL DEFAULT '',
   legacy_payment_id uuid UNIQUE REFERENCES hostel_payments(id),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE rent_receipts ADD COLUMN IF NOT EXISTS reversed_at timestamptz;
+ALTER TABLE rent_receipts ADD COLUMN IF NOT EXISTS reversed_by uuid REFERENCES users(id);
+ALTER TABLE rent_receipts ADD COLUMN IF NOT EXISTS reversal_reason text NOT NULL DEFAULT '';
 -- Preserve recognized legacy monthly balances and receipts. Unrecognized labels
 -- remain in hostel_payments for manual reconciliation; nothing is deleted.
 INSERT INTO rent_charges(tenant_id,month,expected_amount)
@@ -271,9 +277,15 @@ CREATE TABLE IF NOT EXISTS stock_entries (
   date date NOT NULL,
   quantity numeric(12,2) NOT NULL CHECK (quantity > 0),
   notes text NOT NULL DEFAULT '',
+  reversed_at timestamptz,
+  reversed_by uuid REFERENCES users(id),
+  reversal_reason text NOT NULL DEFAULT '',
   legacy_id uuid UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE stock_entries ADD COLUMN IF NOT EXISTS reversed_at timestamptz;
+ALTER TABLE stock_entries ADD COLUMN IF NOT EXISTS reversed_by uuid REFERENCES users(id);
+ALTER TABLE stock_entries ADD COLUMN IF NOT EXISTS reversal_reason text NOT NULL DEFAULT '';
 INSERT INTO business_products(id,business,name,category,unit,selling_price,buying_price,low_stock_level,legacy_id)
 SELECT id,'GROCERY',name,category,unit,GREATEST(selling_price,0),GREATEST(buying_price,0),GREATEST(low_stock_level,0),id FROM grocery_products ON CONFLICT DO NOTHING;
 INSERT INTO stock_entries(product_id,date,quantity,notes,legacy_id)

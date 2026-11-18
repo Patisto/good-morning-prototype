@@ -30,9 +30,18 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
             pool.query(inventorySelect, [scope, day]),
             pool.query(`SELECT s.*, COALESCE(json_agg(json_build_object('itemId',i.item_id,'name',i.name,'quantity',i.quantity,'unitPrice',i.unit_price)) FILTER (WHERE i.id IS NOT NULL),'[]') AS items
         FROM sales s LEFT JOIN sale_items i ON i.sale_id=s.id WHERE s.business=$1 AND s.date=$2 GROUP BY s.id ORDER BY s.created_at DESC`, [scope, day]),
-            pool.query(`SELECT e.*,p.name FROM stock_entries e JOIN business_products p ON p.id=e.product_id WHERE p.business=$1 AND e.date=$2 ORDER BY e.created_at DESC`, [scope, day]),
+            pool.query(`SELECT e.*,p.name,u.name AS reversed_by_name FROM stock_entries e
+                JOIN business_products p ON p.id=e.product_id LEFT JOIN users u ON u.id=e.reversed_by
+                WHERE p.business=$1 AND e.date=$2 ORDER BY e.created_at DESC`, [scope, day]),
         ]);
         res.json({ products: products.rows.map(p => ({ ...p, current_stock: Number(p.received) - Number(p.sold) })), sales: sales.rows, entries: entries.rows });
+    }));
+    router.get('/status', route(async (req, res) => {
+        const result = await pool.query(inventorySelect, [res.locals.business, date(req.query.date)]);
+        const lowStock = result.rows
+            .map(product => ({ name: product.name as string, unit: product.unit as string, currentStock: Number(product.received) - Number(product.sold), lowStockLevel: Number(product.low_stock_level) }))
+            .filter(product => product.currentStock <= product.lowStockLevel);
+        res.json({ lowStockCount: lowStock.length, lowStock });
     }));
     if (section === 'grocery') {
         router.post('/payments/initiate', route(async (req, res) => {
@@ -112,14 +121,43 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
         const b = req.body, day = date(b.date), quantity = number(b.quantity, 'Quantity', 0.01);
         if (section === 'grocery') check(Number.isInteger(quantity), 'Grocery stock quantities must be whole numbers.');
         check(day <= today(), 'Stock cannot be received in the future.');
-        await transaction(async (db) => {
+        const entry = await transaction(async (db) => {
             if (!await claimRequest(db, b.requestId, req.user!.id, `stock:${res.locals.business}`))
                 return;
             const product = await db.query('SELECT id FROM business_products WHERE id::text=$1 AND business=$2 AND archived_at IS NULL FOR UPDATE', [b.productId, res.locals.business]);
             check(product.rowCount, 'Product not found.', 404);
-            await db.query('INSERT INTO stock_entries(product_id,date,quantity,notes) VALUES ($1,$2,$3,$4)', [b.productId, day, quantity, typeof b.notes === 'string' ? b.notes.slice(0, 2000) : '']);
+            const result = await db.query('INSERT INTO stock_entries(product_id,date,quantity,notes) VALUES ($1,$2,$3,$4) RETURNING id', [b.productId, day, quantity, typeof b.notes === 'string' ? b.notes.slice(0, 2000) : '']);
+            return result.rows[0].id as string;
         });
-        res.json({ ok: true });
+        res.json({ id: entry ?? null });
+    }));
+    router.post('/stock/:id/reverse', requireManager(section), route(async (req, res) => {
+        const reason = text(req.body.reason, 'Reversal reason');
+        const reversed = await transaction(async db => {
+            const entry = await db.query(`SELECT e.id,e.product_id,e.date,e.reversed_at
+                FROM stock_entries e JOIN business_products p ON p.id=e.product_id
+                WHERE e.id=$1 AND p.business=$2 FOR UPDATE OF p,e`, [req.params.id, res.locals.business]);
+            check(entry.rowCount, 'Stock receipt not found.', 404);
+            const { id, product_id: productId, date: entryDate } = entry.rows[0];
+            if (entry.rows[0].reversed_at) return id as string;
+            const balance = await db.query(`WITH checkpoints(day) AS (
+                    SELECT $2::date
+                    UNION SELECT date FROM stock_entries WHERE product_id=$1 AND date >= $2 AND reversed_at IS NULL AND id<>$3
+                    UNION SELECT s.date FROM sales s JOIN sale_items i ON i.sale_id=s.id
+                        WHERE i.item_id=$1::text AND s.inventory_tracked AND s.status='COMPLETED' AND s.date >= $2
+                )
+                SELECT MIN(
+                    (SELECT COALESCE(SUM(e.quantity),0) FROM stock_entries e WHERE e.product_id=$1 AND e.date<=checkpoints.day AND e.reversed_at IS NULL AND e.id<>$3)
+                    -(SELECT COALESCE(SUM(i.quantity),0) FROM sale_items i JOIN sales s ON s.id=i.sale_id
+                        WHERE i.item_id=$1::text AND s.inventory_tracked AND s.status='COMPLETED' AND s.date<=checkpoints.day)
+                ) AS minimum_balance FROM checkpoints`, [productId, entryDate, id]);
+            check(Number(balance.rows[0]?.minimum_balance ?? 0) >= 0, 'This receipt cannot be reversed because recorded sales depend on its stock.');
+            const result = await db.query(`UPDATE stock_entries SET reversed_at=now(),reversed_by=$2,reversal_reason=$3
+                WHERE id=$1 AND reversed_at IS NULL RETURNING id`, [id, req.user!.id, reason]);
+            check(result.rowCount, 'This stock receipt has already been reversed.', 409);
+            return result.rows[0].id as string;
+        });
+        res.json({ id: reversed });
     }));
     router.post('/sales', route(async (req, res) => {
         check(req.user!.role !== 'ACCOUNTANT', 'This account has read-only sales access.', 403);

@@ -15,6 +15,10 @@ export function useTrading(section: 'restaurant' | 'grocery') {
         name: string;
         quantity: number;
         notes: string;
+        date: string;
+        reversedAt: string | null;
+        reversalReason: string;
+        reversedByName: string | null;
     }[]>([]);
     const task = useTask();
     const path = (suffix = '') => `/${section}${suffix}?business=${business.value}`;

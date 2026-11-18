@@ -5,16 +5,21 @@ import { useAuthStore } from '@/stores/auth';
 import { useTask } from '@/composables/useTask';
 import { api, fromApi } from '@/lib/api';
 import FormModal from '@/components/ui/FormModal.vue';
+import ReasonModal from '@/components/ui/ReasonModal.vue';
 import ReceivePaymentModal from './ReceivePaymentModal.vue';
-import { formatMWK, type Charge } from '@/types';
+import { formatDisplayDateTime, formatMWK, type Charge } from '@/types';
 const hostel = useHostelStore(), auth = useAuthStore(), { busy, error, run } = useTask();
 const history = ref<Charge | null>(null), paymentTenant = ref<string | null>(null), notes = ref('');
+const receiptToReverse = ref<{ id: string; amount: number; paymentMethod: string } | null>(null);
 const statusFilter = ref<'ALL' | 'DUE' | 'PAID' | 'CREDIT'>('ALL');
 const receipts = ref<{
     id: string;
     amount: number;
     paymentDate: string;
     paymentMethod: string;
+    reversedAt: string | null;
+    reversalReason: string;
+    reversedByName: string | null;
 }[]>([]);
 const netBalance = (charge: Charge) => charge.openingBalance + charge.amountPaid - charge.expectedAmount;
 const due = (charge: Charge) => Math.max(0, -netBalance(charge));
@@ -29,9 +34,23 @@ async function openHistory(charge: Charge) {
     history.value = charge;
     notes.value = charge.notes;
     receipts.value = [];
-    await run(async () => { receipts.value = fromApi<{
-        receipts: typeof receipts.value;
-    }>(await api.get(`/hostel/charges/${charge.id}/receipts`, auth.token)).receipts; });
+    await loadReceipts(charge.id);
+}
+async function fetchReceipts(chargeId: string) {
+    receipts.value = fromApi<{ receipts: typeof receipts.value }>(await api.get(`/hostel/charges/${chargeId}/receipts`, auth.token)).receipts;
+}
+async function loadReceipts(chargeId: string) {
+    await run(() => fetchReceipts(chargeId));
+}
+async function reverseReceipt(reason: string) {
+    const charge = history.value, receipt = receiptToReverse.value;
+    if (!charge || !receipt || !reason) return;
+    await run(async () => {
+        await api.post(`/hostel/charges/${charge.id}/receipts/${receipt.id}/reverse`, { reason }, auth.token);
+        receiptToReverse.value = null;
+        await fetchReceipts(charge.id);
+        await hostel.hydrate();
+    });
 }
 async function saveNotes() {
     if (!history.value)
@@ -56,13 +75,16 @@ async function saveNotes() {
           {{ formatMWK(total) }}
         </strong>
       </p>
-      <div v-if="auth.canManage('hostel')" class="flex flex-wrap gap-2">
-        <button class="btn-secondary" :disabled="busy" @click="run(()=>hostel.mutate('/charges',{ month:hostel.month }))">
-          Generate monthly charges
-        </button>
-        <button class="btn" :disabled="busy" @click="paymentTenant=''">
-          Receive payment
-        </button>
+      <div class="flex flex-wrap gap-2">
+        <router-link v-if="auth.canSee('finance')" class="btn-secondary" to="/finance?business=HOSTEL">View finances</router-link>
+        <template v-if="auth.canManage('hostel')">
+          <button class="btn-secondary" :disabled="busy" @click="run(()=>hostel.mutate('/charges',{ month:hostel.month }))">
+            Generate monthly charges
+          </button>
+          <button class="btn" :disabled="busy" @click="paymentTenant=''">
+            Receive payment
+          </button>
+        </template>
       </div>
     </div>
     <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -71,7 +93,7 @@ async function saveNotes() {
         { id: 'PAID', label: 'Fully paid', value: paidCount, detail: formatMWK(paidTotal) + ' received' },
         { id: 'DUE', label: 'Still owing', value: dueCount, detail: formatMWK(total) + ' outstanding' },
         { id: 'CREDIT', label: 'Tenant credit', value: formatMWK(creditTotal), detail: 'available against rent' }
-      ]" :key="card.id" type="button" class="panel text-left transition hover:border-primary" :class="statusFilter===card.id ? 'border-primary ring-1 ring-primary' : ''" @click="statusFilter=card.id as typeof statusFilter">
+      ]" :key="card.id" type="button" class="panel text-left transition hover:border-primary" :aria-pressed="statusFilter===card.id" :class="statusFilter===card.id ? 'border-primary ring-1 ring-primary' : ''" @click="statusFilter=card.id as typeof statusFilter">
         <span class="block text-sm text-ink-muted">{{ card.label }}</span>
         <strong class="mt-1 block text-xl">{{ card.value }}</strong>
         <span class="text-xs text-ink-muted">{{ card.detail }}</span>
@@ -118,17 +140,14 @@ async function saveNotes() {
             <td>
               {{ formatMWK(charge.amountPaid) }}
             </td>
-            <td>{{ formatMWK(Math.abs(charge.openingBalance)) }} {{ charge.openingBalance > 0 ? 'credit' : charge.openingBalance < 0 ? 'owed' : '—' }}</td>
+            <td>{{ charge.openingBalance === 0 ? 'No opening balance' : `${formatMWK(Math.abs(charge.openingBalance))} ${charge.openingBalance > 0 ? 'credit' : 'owed'}` }}</td>
             <td><span class="font-semibold" :class="netBalance(charge)<0 ? 'text-red-700' : netBalance(charge)>0 ? 'text-primary' : 'text-green-700'">{{ netBalance(charge)<0 ? 'Due ' : netBalance(charge)>0 ? 'Credit ' : 'Paid ' }}{{ formatMWK(Math.abs(netBalance(charge))) }}</span></td>
             <td>
               {{ charge.notes || '—' }}
             </td>
             <td class="space-x-2">
-              <button v-if="auth.canManage('hostel')" class="btn" :disabled="busy" @click="paymentTenant=charge.tenantId">
-                Receive payment
-              </button>
               <button class="btn-secondary" :disabled="busy" @click="openHistory(charge)">
-                History & notes
+                Payment history & notes
               </button>
             </td>
           </tr>
@@ -136,7 +155,7 @@ async function saveNotes() {
       </table>
     </div>
     <p v-if="!hostel.charges.length" class="panel text-ink-muted">
-      No charges for this month yet. Receive a payment directly, or generate monthly charges to see all balances.
+      No charges for this month yet. Generate monthly charges to see each tenant’s balance, or use Receive payment to record a payment directly.
     </p>
     <ReceivePaymentModal v-if="paymentTenant!==null" :tenant-id="paymentTenant" :month="hostel.month" @close="paymentTenant=null" @saved="run(()=>hostel.hydrate())" />
     <FormModal v-if="history" :title="`${tenantName(history.tenantId)} · ${history.month}`" :busy="busy" @close="history=null">
@@ -151,8 +170,13 @@ async function saveNotes() {
           Payment receipts
         </h3>
         <ul class="space-y-2 text-sm">
-          <li v-for="receipt in receipts" :key="receipt.id">
-            {{ receipt.paymentDate }} · {{ formatMWK(receipt.amount) }} · {{ receipt.paymentMethod.replaceAll('_',' ') }}
+          <li v-for="receipt in receipts" :key="receipt.id" class="flex flex-wrap items-center justify-between gap-2 rounded border border-line p-3">
+            <div>
+              <p class="font-medium">{{ receipt.paymentDate }} · {{ formatMWK(receipt.amount) }} · {{ receipt.paymentMethod.replaceAll('_',' ') }}</p>
+              <p v-if="receipt.reversedAt" class="text-xs text-danger">Reversed {{ formatDisplayDateTime(receipt.reversedAt) }}<span v-if="receipt.reversedByName"> by {{ receipt.reversedByName }}</span> · {{ receipt.reversalReason }}</p>
+            </div>
+            <button v-if="auth.canManage('hostel') && !receipt.reversedAt && receipt.paymentMethod !== 'PAYCHANGU'" type="button" class="btn-secondary" :disabled="busy" @click="receiptToReverse=receipt">Reverse payment</button>
+            <span v-else-if="receipt.paymentMethod === 'PAYCHANGU' && !receipt.reversedAt" class="text-xs text-ink-muted">Online payments require provider reconciliation</span>
           </li>
         </ul>
         <p v-if="!receipts.length && !busy" class="text-sm text-ink-muted">
@@ -177,5 +201,6 @@ async function saveNotes() {
         </p>
       </div>
     </FormModal>
+    <ReasonModal v-if="receiptToReverse" title="Reverse rent payment" :description="`This will remove ${formatMWK(receiptToReverse.amount)} from the tenant’s rent balance and finance totals. The receipt and reason remain in the audit history.`" :busy="busy" :error="error" @close="receiptToReverse=null" @submit="reverseReceipt" />
   </div>
 </template>

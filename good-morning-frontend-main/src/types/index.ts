@@ -112,7 +112,24 @@ export interface Expense {
     notes?: string;
 }
 export function formatMWK(amount: number): string {
-    return 'MWK ' + amount.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return 'MWK ' + Math.round(amount).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+export function formatDisplayDate(value: string): string {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const [year, month, day] = value.split('-').map(Number);
+    return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+export function formatDisplayDateTime(value: string): string {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return new Intl.DateTimeFormat('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Africa/Blantyre',
+    }).format(parsed);
 }
 export function uid(prefix: string): string {
     return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -132,7 +149,7 @@ export interface Charge {
     openingBalance: number;
     notes: string;
 }
-export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'UPPER RESTAURANT', RESTAURANT_B: 'LOWER RESTAURANT', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);
+export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'Upper restaurant', RESTAURANT_B: 'Lower restaurant', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);
 export const paymentMethods: PaymentMethod[] = ['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK', 'OTHER'];
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Blantyre', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
