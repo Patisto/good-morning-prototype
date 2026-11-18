@@ -9,13 +9,16 @@ const http_1 = require("../utils/http");
 const inventory_1 = require("../services/inventory");
 const paymentNotifications_1 = require("../services/paymentNotifications");
 const groceryPayment_1 = require("../services/groceryPayment");
+const restaurantPayment_1 = require("../services/restaurantPayment");
 /** One implementation keeps restaurant and grocery inventory rules consistent. */
 function tradingRouter(section) {
     const router = (0, express_1.Router)();
     router.use(auth_1.requireAuth, (0, auth_1.requireSection)(section));
     router.use((req, res, next) => {
         try {
-            const scope = (0, inventory_1.business)(req.query.business ?? req.body?.business);
+            const scope = section === 'grocery'
+                ? 'GROCERY'
+                : (0, inventory_1.business)(req.query.business ?? req.body?.business);
             (0, http_1.check)(section === 'grocery' ? scope === 'GROCERY' : scope !== 'GROCERY', 'Wrong business for this section.', 403);
             res.locals.business = scope;
             next();
@@ -38,7 +41,6 @@ function tradingRouter(section) {
         router.post('/payments/initiate', (0, http_1.route)(async (req, res) => {
             const result = await groceryPayment_1.groceryPaymentService.initiate({
                 amount: req.body.amount,
-                network: req.body.network,
                 phone: req.body.phone,
                 items: req.body.items,
                 requestId: req.body.requestId,
@@ -55,6 +57,24 @@ function tradingRouter(section) {
         }));
     }
     if (section === 'restaurant') {
+        router.post('/payments/initiate', (0, http_1.route)(async (req, res) => {
+            const result = await restaurantPayment_1.restaurantPaymentService.initiate({
+                business: res.locals.business,
+                amount: req.body.amount,
+                phone: req.body.phone,
+                network: req.body.network,
+                items: req.body.items,
+                requestId: req.body.requestId,
+                cashier: req.user.name,
+            });
+            res.json(result);
+        }));
+        router.get('/payments/:reference/status', (0, http_1.route)(async (req, res) => {
+            const result = await restaurantPayment_1.restaurantPaymentService.verifyAndPost(req.params.reference);
+            const payment = await pool_1.pool.query('SELECT reference,amount,network,status,sale_id,failure_reason FROM restaurant_payment_attempts WHERE reference=$1 OR charge_id=$1', [req.params.reference]);
+            (0, http_1.check)(payment.rowCount, 'Payment not found.', 404);
+            res.json({ ...payment.rows[0], verification: result });
+        }));
         router.get('/meal-cards', (0, http_1.route)(async (_req, res) => {
             const result = await pool_1.pool.query('SELECT id,customer_name,phone,balance,default_charge,business,active FROM restaurant_meal_cards WHERE business=$1 AND active=true ORDER BY customer_name', [res.locals.business]);
             res.json(result.rows);
@@ -96,6 +116,8 @@ function tradingRouter(section) {
     }));
     router.post('/stock', (0, auth_1.requireManager)(section), (0, http_1.route)(async (req, res) => {
         const b = req.body, day = (0, http_1.date)(b.date), quantity = (0, http_1.number)(b.quantity, 'Quantity', 0.01);
+        if (section === 'grocery')
+            (0, http_1.check)(Number.isInteger(quantity), 'Grocery stock quantities must be whole numbers.');
         (0, http_1.check)(day <= (0, http_1.today)(), 'Stock cannot be received in the future.');
         await (0, http_1.transaction)(async (db) => {
             if (!await (0, http_1.claimRequest)(db, b.requestId, req.user.id, `stock:${res.locals.business}`))

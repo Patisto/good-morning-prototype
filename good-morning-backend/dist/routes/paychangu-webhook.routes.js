@@ -9,6 +9,7 @@ const pool_1 = require("../db/pool");
 const paychangu_1 = require("../services/paychangu");
 const payment_1 = require("../services/payment");
 const groceryPayment_1 = require("../services/groceryPayment");
+const restaurantPayment_1 = require("../services/restaurantPayment");
 const router = (0, express_1.Router)();
 router.post('/', async (req, res, next) => {
     try {
@@ -33,6 +34,16 @@ router.post('/', async (req, res, next) => {
                 return res.status(401).json({ error: 'Invalid webhook signature.' });
             const result = await groceryPayment_1.groceryPaymentService.verifyAndPost(grocery.rows[0].reference);
             await pool_1.pool.query('UPDATE grocery_payment_events SET processed=true WHERE payload_hash=$1', [hash]);
+            return res.json({ received: true, result });
+        }
+        const restaurant = chargeId ? await pool_1.pool.query('SELECT id,reference FROM restaurant_payment_attempts WHERE charge_id=$1 OR reference=$1', [chargeId]) : { rows: [] };
+        if (restaurant.rows[0]) {
+            await pool_1.pool.query(`INSERT INTO restaurant_payment_events(restaurant_payment_attempt_id,provider_event_id,event_type,payload_hash,payload,signature_valid)
+        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [restaurant.rows[0].id, eventId, String(payload.event_type || 'unknown'), hash, JSON.stringify(auditPayload), valid]);
+            if (!valid)
+                return res.status(401).json({ error: 'Invalid webhook signature.' });
+            const result = await restaurantPayment_1.restaurantPaymentService.verifyAndPost(restaurant.rows[0].reference);
+            await pool_1.pool.query('UPDATE restaurant_payment_events SET processed=true WHERE payload_hash=$1', [hash]);
             return res.json({ received: true, result });
         }
         const attempt = reference ? await pool_1.pool.query('SELECT id FROM payment_attempts WHERE reference=$1', [reference]) : { rows: [] };

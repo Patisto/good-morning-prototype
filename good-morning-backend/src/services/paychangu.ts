@@ -23,14 +23,14 @@ export class PayChanguService {
     }
   }
 
-  async createCheckout(input: { reference: string; amount: string; firstName: string; lastName: string; email?: string | null }) {
+  async createCheckout(input: { reference: string; amount: string; firstName: string; lastName: string; email?: string | null; title?: string; description?: string }) {
     // Drop-in Element extension point: implement a separate client method only if that mode is selected later.
     const returnUrl = `${config.paychanguReturnUrl}${config.paychanguReturnUrl.includes('?') ? '&' : '?'}ref=${encodeURIComponent(input.reference)}`;
     const body = await this.request('/payment', { method: 'POST', body: JSON.stringify({
       amount: input.amount, currency: config.currency, tx_ref: input.reference,
       first_name: input.firstName, last_name: input.lastName, email: input.email || undefined,
       callback_url: config.paychanguCallbackUrl, return_url: returnUrl,
-      customization: { title: 'Hostel rent payment', description: 'Online rental payment' },
+      customization: { title: input.title || 'Hostel rent payment', description: input.description || 'Online rental payment' },
     }) });
     const checkoutUrl = body?.data?.checkout_url;
     if (body?.status !== 'success' || typeof checkoutUrl !== 'string') throw new Error('PayChangu did not return a checkout URL.');

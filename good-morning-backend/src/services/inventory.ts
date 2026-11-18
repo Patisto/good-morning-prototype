@@ -13,7 +13,7 @@ export const inventorySelect = `SELECT p.*,
     WHERE i.item_id=p.id::text AND s.inventory_tracked AND s.status='COMPLETED'
     AND s.date <= $2::date),0) AS sold
   FROM business_products p WHERE p.business=$1 AND p.archived_at IS NULL ORDER BY p.name`;
-export function normalizeLines(value: unknown): {
+export function normalizeLines(value: unknown, scope: SalesBusiness): {
     itemId: string;
     quantity: number;
 }[] {
@@ -22,12 +22,17 @@ export function normalizeLines(value: unknown): {
     for (const line of value) {
         check(line && typeof line.itemId === 'string', 'Invalid sale item.');
         const qty = number(line.quantity, 'Quantity', 0.01);
-        quantities.set(line.itemId, number(Math.round(((quantities.get(line.itemId) ?? 0) + qty) * 100) / 100, 'Quantity', 0.01));
+        if (scope === 'GROCERY') {
+            check(Number.isInteger(qty), 'Grocery quantities must be whole numbers.');
+        }
+        quantities.set(line.itemId, scope === 'GROCERY'
+            ? number((quantities.get(line.itemId) ?? 0) + qty, 'Quantity', 1)
+            : number(Math.round(((quantities.get(line.itemId) ?? 0) + qty) * 100) / 100, 'Quantity', 0.01));
     }
     return Array.from(quantities, ([itemId, quantity]) => ({ itemId, quantity })).sort((a, b) => a.itemId.localeCompare(b.itemId));
 }
 export async function pricedLines(db: PoolClient, scope: SalesBusiness, date: string, input: unknown) {
-    const lines = normalizeLines(input);
+    const lines = normalizeLines(input, scope);
     // Always lock products in the same order. Sales and stock receipts share these locks.
     const locked = await db.query('SELECT id FROM business_products WHERE id::text=ANY($1::text[]) AND business=$2 AND archived_at IS NULL ORDER BY id FOR UPDATE', [lines.map(l => l.itemId), scope]);
     check(locked.rowCount === lines.length, 'One or more products are unavailable.');

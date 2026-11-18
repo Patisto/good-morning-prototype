@@ -46,7 +46,7 @@ class PayChanguService {
                 amount: input.amount, currency: config_1.config.currency, tx_ref: input.reference,
                 first_name: input.firstName, last_name: input.lastName, email: input.email || undefined,
                 callback_url: config_1.config.paychanguCallbackUrl, return_url: returnUrl,
-                customization: { title: 'Hostel rent payment', description: 'Online rental payment' },
+                customization: { title: input.title || 'Hostel rent payment', description: input.description || 'Online rental payment' },
             }) });
         const checkoutUrl = body?.data?.checkout_url;
         if (body?.status !== 'success' || typeof checkoutUrl !== 'string')

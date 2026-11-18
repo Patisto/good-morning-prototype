@@ -12,7 +12,7 @@ const props = defineProps<{
 const auth = useAuthStore();
 const route = useRoute();
 const { business, date, products, sales, entries, canManage, revenue, busy, error, run, load, save, remove, sell } = useTrading(props.section);
-const tab = ref(String(route.query.tab || 'sales')), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH');
+const tab = ref(String(route.query.tab || 'sales')), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH'), paymentNetwork = ref<'AIRTEL_MONEY' | 'TNM_MPAMBA'>('AIRTEL_MONEY');
 watch(() => route.query.tab, value => { tab.value = String(value || 'sales'); });
 const cart = ref<{
     itemId: string;
@@ -25,7 +25,7 @@ type MealCard = { id: string; customerName: string; phone: string; balance: numb
 const mealCards = ref<MealCard[]>([]), selectedMealCardId = ref(''), chargedTotal = ref<number | null>(null);
 const mealCardDraft = ref({ customerName: '', phone: '', balance: 0, defaultCharge: 0 });
 const creditCustomer = ref('');
-const mobileNetwork = ref<'AIRTEL_MONEY' | 'TNM_MPAMBA'>('AIRTEL_MONEY'), customerPhone = ref('');
+const customerPhone = ref('');
 const paymentStatus = ref('');
 const calculator = ref({ paid: 0 });
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
@@ -34,7 +34,7 @@ const lineProduct = (id: string) => products.value.find(p => p.id === id);
 const cartTotal = computed(() => cart.value.reduce((sum, line) => sum + Math.round((lineProduct(line.itemId)?.sellingPrice ?? 0) * line.quantity * 100) / 100, 0));
 const changeDue = computed(() => Math.max(0, Number(calculator.value.paid || 0) - cartTotal.value));
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
-const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','PAYCHANGU']);
+const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD','PAYCHANGU'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','PAYCHANGU']);
 const selectedMealCard = computed(() => mealCards.value.find(card => card.id === selectedMealCardId.value));
 async function loadMealCards() {
     if (props.section !== 'restaurant') return;
@@ -66,20 +66,29 @@ async function checkout() {
         if (paymentMethod.value !== 'PAYCHANGU') {
             await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined });
         } else {
-            paymentStatus.value = 'Submitting payment request…';
-            const initiated = await api.post<{ reference: string; status: string }>('/grocery/payments/initiate', { amount: cartTotal.value, items: cart.value, network: mobileNetwork.value, phone: customerPhone.value }, auth.token);
-            paymentStatus.value = 'Waiting for customer authorization on their phone…';
+            paymentStatus.value = 'Requesting mobile money payment…';
+            const endpoint = props.section === 'restaurant'
+                ? `/restaurant/payments/initiate?business=${business.value}`
+                : '/grocery/payments/initiate?business=GROCERY';
+            const initiated = await api.post<{ reference: string; checkout_url?: string; status: string }>(endpoint, {
+                amount: cartTotal.value,
+                items: cart.value,
+                phone: customerPhone.value,
+                network: paymentNetwork.value,
+            }, auth.token);
+            if (initiated.checkout_url) window.open(initiated.checkout_url, '_blank', 'noopener,noreferrer');
+            paymentStatus.value = initiated.checkout_url ? 'Complete payment in the PayChangu checkout window…' : 'Payment prompt sent. Waiting for customer authorization…';
             const started = Date.now();
             let result: { status: string } = initiated;
             while (['PENDING', 'PROCESSING'].includes(result.status) && Date.now() - started < 120000) {
                 await new Promise(resolve => setTimeout(resolve, 3000));
-                result = await api.get<{ status: string }>(`/grocery/payments/${encodeURIComponent(initiated.reference)}/status`, auth.token);
+                result = await api.get<{ status: string }>(`${props.section === 'restaurant' ? '/restaurant' : '/grocery'}/payments/${encodeURIComponent(initiated.reference)}/status?business=${business.value}`, auth.token);
                 if (result.status === 'SUCCEEDED') break;
             }
             if (result.status !== 'SUCCEEDED') throw new Error(result.status === 'PENDING' || result.status === 'PROCESSING' ? 'Payment is still pending. Refresh the sale status before retrying.' : `Payment ${result.status.toLowerCase()}.`);
             paymentStatus.value = 'Payment successful. Sale recorded.';
         }
-        cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; customerPhone.value = '';
+        cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; customerPhone.value = ''; paymentStatus.value = '';
         await load(); if (props.section === 'restaurant') await loadMealCards();
     });
 }
@@ -197,7 +206,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           <div v-for="(line,index) in cart" :key="line.itemId" class="flex items-end gap-2">
             <label class="field flex-1">
               {{ lineProduct(line.itemId)?.name }}
-              <input v-model.number="line.quantity" class="input" type="number" min="0.01" step="0.01" :max="lineProduct(line.itemId)?.currentStock" required />
+              <input v-model.number="line.quantity" class="input" type="number" :min="section === 'grocery' ? 1 : 0.01" :step="section === 'grocery' ? 1 : 0.01" :max="lineProduct(line.itemId)?.currentStock" required />
             </label>
             <button type="button" class="btn-secondary" :disabled="busy" @click="cart.splice(index,1)">
               Remove
@@ -230,8 +239,8 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
             <p v-if="selectedMealCard" class="text-xs text-ink-muted">Default {{ formatMWK(selectedMealCard.defaultCharge) }} · remaining balance {{ formatMWK(selectedMealCard.balance) }}</p>
           </template>
           <template v-if="paymentMethod === 'PAYCHANGU'">
-            <label class="field">Mobile money network
-              <select v-model="mobileNetwork" class="input">
+            <label v-if="section === 'restaurant'" class="field">Mobile money network
+              <select v-model="paymentNetwork" class="input">
                 <option value="AIRTEL_MONEY">Airtel Money</option>
                 <option value="TNM_MPAMBA">TNM Mpamba</option>
               </select>
@@ -239,7 +248,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
             <label class="field">Customer phone number
               <input v-model="customerPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="0999 123 456" required>
             </label>
-            <p class="text-sm text-ink-muted" role="status">The customer authorizes the request on their phone. Never ask for their PIN.</p>
+            <p class="text-sm text-ink-muted" role="status">{{ section === 'restaurant' ? 'The customer will authorize the payment prompt on their phone.' : 'PayChangu checkout lets the customer choose and authorize their payment method.' }}</p>
             <p v-if="paymentStatus" class="text-sm" role="status">{{ paymentStatus }}</p>
           </template>
           <p class="text-xl font-semibold">
@@ -325,7 +334,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </label>
         <label class="field">
           Quantity received
-          <input v-model.number="stock.quantity" class="input" type="number" min="0.01" step="0.01" required />
+          <input v-model.number="stock.quantity" class="input" type="number" :min="section === 'grocery' ? 1 : 0.01" :step="section === 'grocery' ? 1 : 0.01" required />
         </label>
         <label class="field">
           Notes / Transaction Details
