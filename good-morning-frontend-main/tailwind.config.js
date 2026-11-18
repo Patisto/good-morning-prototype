@@ -24,6 +24,10 @@ export default {
           DEFAULT: '#3E7A4C',
           light: '#E6F0E7',
         },
+        info: {
+          DEFAULT: '#27628A',
+          light: '#E8F1F7',
+        },
         pending: {
           DEFAULT: '#C9821E',
           light: '#FBF0DF',

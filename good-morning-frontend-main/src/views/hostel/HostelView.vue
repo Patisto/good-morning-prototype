@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useRoute } from 'vue-router';
 import RentPayments from '@/components/management/RentPayments.vue';
 import RoomConfiguration from '@/components/management/RoomConfiguration.vue';
-import ReceivePaymentModal from '@/components/management/ReceivePaymentModal.vue';
 import FormModal from '@/components/ui/FormModal.vue';
 import { useTask } from '@/composables/useTask';
 import { downloadAgreement } from '@/lib/accommodation-agreement';
@@ -20,7 +19,7 @@ const route = useRoute();
 const tab = ref(String(route.query.tab || 'rooms'));
 watch(() => route.query.tab, value => { tab.value = String(value || 'rooms'); });
 const unitFilter = ref('');
-const paymentTenant = ref<string | null>(null);
+const roomStatusFilter = ref<'ALL' | 'VACANT' | 'PARTIAL' | 'OCCUPIED'>('ALL');
 const { busy, error, run } = useTask();
 onMounted(() => run(() => hostel.hydrate()));
 const search = ref('');
@@ -33,6 +32,8 @@ const roomsByUnit = computed(() => {
     const groups = new Map<string, Room[]>();
     for (const room of hostel.rooms) {
         if (unitFilter.value && room.housingUnitId !== unitFilter.value)
+            continue;
+        if (roomStatusFilter.value !== 'ALL' && hostel.roomStatus(room) !== roomStatusFilter.value)
             continue;
         if (!groups.has(room.housingUnit))
             groups.set(room.housingUnit, []);
@@ -93,10 +94,6 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
   <div class="space-y-4">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-xl font-semibold">Hostel management</h2>
-      <div class="flex gap-2">
-        <router-link v-if="auth.canSee('finance')" class="btn-secondary" to="/finance?business=HOSTEL">View finances</router-link>
-        <button v-if="canManage" class="btn" :disabled="busy" @click="paymentTenant=''">Receive payment</button>
-      </div>
     </header>
     <p v-if="error" class="error" role="alert">
       {{ error }}
@@ -114,7 +111,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       Saving / loading…
     </p>
     <div class="flex justify-end">
-      <button v-if="canManage && tab === 'tenants'" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark" @click="addTenant">
+      <button v-if="canManage && tab === 'tenants'" type="button" class="btn" @click="addTenant">
         Register tenant
       </button>
     </div>
@@ -122,21 +119,25 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       <label class="field max-w-sm">Housing unit
         <select v-model="unitFilter" class="input"><option value="">All units</option><option v-for="unit in hostel.units" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select>
       </label>
+      <div class="flex flex-wrap gap-2" role="group" aria-label="Filter rooms by occupancy">
+        <button v-for="status in ['ALL','VACANT','PARTIAL','OCCUPIED']" :key="status" type="button" class="btn-secondary" :aria-pressed="roomStatusFilter===status" :class="roomStatusFilter===status ? '!border-primary !bg-primary-light !text-primary-dark' : ''" @click="roomStatusFilter=status as typeof roomStatusFilter">{{ status==='ALL' ? 'All rooms' : status.charAt(0)+status.slice(1).toLowerCase() }}</button>
+      </div>
       <p v-if="!roomsByUnit.size" class="panel text-sm text-ink-muted">No rooms in this housing unit.</p>
       <div v-for="[unit, roomsInUnit] in roomsByUnit" :key="unit">
         <h3 class="mb-2 text-sm font-medium text-ink-muted">
           {{ unit }}
         </h3>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-          <div v-for="room in roomsInUnit" :key="room.id" role="button" tabindex="0" class="cursor-pointer rounded border border-line bg-surface p-3 transition hover:border-primary hover:shadow-sm" @click="openRoom(room)" @keydown.enter="openRoom(room)">
+          <button v-for="room in roomsInUnit" :key="room.id" type="button" class="w-full rounded border border-line bg-surface p-3 text-left transition hover:border-primary hover:shadow-sm" @click="openRoom(room)">
             <p class="font-medium">
               {{ room.label ?? room.identifier }}
             </p>
             <p class="text-xs text-ink-muted">
-              Capacity · {{ room.occupants }}/{{ room.capacity }}
+              {{ room.occupants }} of {{ room.capacity }} beds occupied
             </p>
+            <p v-for="tenant in hostel.tenantByRoom(room.id)" :key="tenant.id" class="mt-1 truncate text-xs font-medium">{{ tenant.firstName }} {{ tenant.lastName }}</p>
             <StatusPill class="mt-2" :tone="statusTone(room)" :label="hostel.roomStatus(room).charAt(0) + hostel.roomStatus(room).slice(1).toLowerCase()" />
-          </div>
+          </button>
         </div>
       </div>
     </div>
@@ -152,7 +153,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
               <th class="px-4 py-2 font-medium">
                 Room
               </th>
-              <th class="px-4 py-2 font-medium">
+              <th v-if="filteredTenants.some(tenant => tenant.institution)" class="px-4 py-2 font-medium">
                 Institution
               </th>
               <th class="px-4 py-2 font-medium">
@@ -161,17 +162,20 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
               <th class="px-4 py-2 font-medium">
                 Physical form
               </th>
+              <th class="px-4 py-2 text-right font-medium">
+                Details
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="tenant in filteredTenants" :key="tenant.id" class="cursor-pointer border-b border-line last:border-0 hover:bg-paper" @click="viewTenant(tenant)">
+            <tr v-for="tenant in filteredTenants" :key="tenant.id" class="border-b border-line last:border-0 hover:bg-paper">
               <td class="px-4 py-2 font-medium">
                 {{ tenant.firstName }} {{ tenant.lastName }}
               </td>
               <td class="px-4 py-2 text-ink-muted">
                 {{ roomName(tenant.roomId) }}
               </td>
-              <td class="px-4 py-2 text-ink-muted">
+              <td v-if="filteredTenants.some(item => item.institution)" class="px-4 py-2 text-ink-muted">
                 {{ tenant.institution }}
               </td>
               <td class="tabular px-4 py-2">
@@ -180,16 +184,22 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
               <td class="px-4 py-2">
                 <StatusPill :tone="tenant.agreementStatus === 'SIGNED' ? 'success' : tenant.agreementStatus === 'PENDING' ? 'pending' : 'danger'" :label="tenant.agreementStatus.charAt(0) + tenant.agreementStatus.slice(1).toLowerCase()" />
               </td>
+              <td class="px-4 py-2 text-right">
+                <button type="button" class="btn-secondary" @click="viewTenant(tenant)">View profile</button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
+      <p v-if="!filteredTenants.length" class="panel text-sm text-ink-muted">
+        {{ search ? 'No tenants match this search.' : 'No active tenants yet.' }}
+        <button v-if="canManage && !search" type="button" class="ml-1 font-medium text-primary underline" @click="addTenant">Register a tenant</button>
+      </p>
     </div>
     <RentPayments v-else-if="tab === 'payments'" />
     <RoomConfiguration v-else-if="tab === 'configuration' && canManage" />
 
   </div>
-  <ReceivePaymentModal v-if="paymentTenant!==null" :tenant-id="paymentTenant" @close="paymentTenant=null" @saved="run(()=>hostel.hydrate())" />
   <FormModal v-if="selectedRoom || selectedTenant || editing" :title="editing ? (selectedTenant ? 'Edit tenant' : 'Add tenant') : selectedRoom ? (selectedRoom.label || selectedRoom.identifier) : 'Tenant profile'" :busy="busy" @close="closeModal">
       <div v-if="selectedRoom && !editing" class="space-y-3 p-5">
         <p class="text-sm text-ink-muted">
@@ -230,7 +240,6 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
             <button v-if="canManage" type="button" class="rounded bg-primary px-3 py-2 text-sm font-medium text-white" @click="editTenant">
               Edit tenant / move room
             </button>
-            <button v-if="canManage" type="button" class="btn" :disabled="busy" @click="paymentTenant=selectedTenant.id; closeModal()">Receive payment</button>
             <button v-if="canManage" type="button" class="btn-secondary" :disabled="busy" @click="checkout">
               Check out
             </button>

@@ -70,7 +70,7 @@ const currentSubsections = computed(() => {
       </li>
       <li class="border-t border-line px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-ink-muted">{{ sectionTitle }}</li>
       <li v-for="item in currentSubsections" :key="item.tab">
-        <router-link :to="{ path: route.path, query: { ...route.query, tab: item.tab } }" class="block rounded px-3 py-2 text-sm text-ink-muted hover:bg-primary-light hover:text-primary-dark" :class="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? '!bg-primary-light !font-semibold !text-primary-dark' : ''" @click="$emit('close')">
+        <router-link :to="{ path: route.path, query: { ...route.query, tab: item.tab } }" class="block rounded px-3 py-2 text-sm text-ink-muted hover:bg-primary-light hover:text-primary-dark" :class="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? '!bg-primary-light !font-semibold !text-primary-dark' : ''" :aria-current="String(route.query.tab || (route.path === '/hostel' ? 'rooms' : 'sales')) === item.tab ? 'page' : undefined" @click="$emit('close')">
           {{ item.label }}
         </router-link>
       </li>

@@ -52,7 +52,7 @@ export const api = {
     post,
 };
 /** Normalize PostgreSQL numeric values and snake_case keys at the API boundary. */
-const numericKeys = new Set(['capacity', 'occupants', 'monthlyPrice', 'monthlyAmount', 'deposit', 'yearOfStudy', 'expectedAmount', 'amountPaid', 'openingBalance', 'sellingPrice', 'buyingPrice', 'currentStock', 'lowStockLevel', 'received', 'sold', 'quantity', 'unitPrice', 'total', 'amount', 'income', 'expenses', 'credit', 'balance', 'defaultCharge', 'count']);
+const numericKeys = new Set(['capacity', 'occupants', 'monthlyPrice', 'monthlyAmount', 'deposit', 'yearOfStudy', 'expectedAmount', 'amountPaid', 'openingBalance', 'sellingPrice', 'buyingPrice', 'currentStock', 'lowStockLevel', 'received', 'sold', 'quantity', 'unitPrice', 'total', 'amount', 'income', 'expenses', 'credit', 'balance', 'defaultCharge', 'count', 'lowStockCount', 'owingCount', 'outstanding', 'missingChargeCount']);
 export function fromApi<T>(input: unknown): T {
     if (Array.isArray(input))
         return input.map(value => fromApi(value)) as T;
@@ -69,8 +69,11 @@ function mutationMessage(path: string, options: RequestInit): string | null {
         return null;
     const body = typeof options.body === 'string' ? JSON.parse(options.body) : {};
     const resource = path.split('?')[0];
-    if (options.method === 'DELETE')
-        return resource.includes('/rooms/') ? 'Room deleted.' : 'Item deleted.';
+    if (options.method === 'DELETE') {
+        if (resource.includes('/rooms/')) return 'Room deleted.';
+        if (resource.includes('/sales/')) return 'Sale erased and stock restored.';
+        return 'Item deleted.';
+    }
     if (resource === '/users')
         return body.id ? 'Account updated.' : 'Account created.';
     if (resource === '/hostel/units')
@@ -83,6 +86,8 @@ function mutationMessage(path: string, options: RequestInit): string | null {
         return 'Tenant checked out.';
     if (resource.endsWith('/payments'))
         return 'Payment received and recorded.';
+    if (resource.includes('/charges/') && resource.endsWith('/reverse'))
+        return 'Rent payment reversed; balance and finance totals updated.';
     if (resource.endsWith('/notes'))
         return 'Balance notes saved.';
     if (resource.endsWith('/batch-price'))
@@ -95,9 +100,13 @@ function mutationMessage(path: string, options: RequestInit): string | null {
         return body.id ? 'Item updated.' : 'Item added.';
     if (resource.endsWith('/stock'))
         return 'Stock received.';
+    if (resource.includes('/stock/') && resource.endsWith('/reverse'))
+        return 'Stock receipt reversed; inventory updated.';
     if (resource.endsWith('/sales'))
         return 'Sale recorded.';
     if (resource === '/expenses')
         return 'Expense recorded.';
+    if (resource === '/finance/transactions/erase')
+        return 'Filtered transactions permanently erased.';
     return 'Changes saved.';
 }

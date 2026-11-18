@@ -16,7 +16,7 @@ router.get('/', route(async (req, res) => {
     const ledger = `WITH ledger AS (
         SELECT p.id,'HOSTEL'::text AS business,p.payment_date AS date,'INCOME'::text AS kind,p.amount,
             t.first_name || ' ' || t.last_name || ' · Rent ' || c.month AS description,p.payment_method,''::text AS notes,p.created_at
-        FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id JOIN tenants t ON t.id=c.tenant_id
+        FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id JOIN tenants t ON t.id=c.tenant_id WHERE p.reversed_at IS NULL
         UNION ALL SELECT s.id,s.business,s.date,CASE WHEN s.payment_method='CREDIT' THEN 'CREDIT' ELSE 'INCOME' END,s.total,'Sale · ' || COALESCE(s.credit_customer || ' · ', '') || COALESCE(s.cashier,'Unknown cashier'),s.payment_method,'',s.created_at
         FROM sales s WHERE s.status='COMPLETED' AND s.payment_method<>'MEAL_CARD'
         UNION ALL SELECT f.id,f.business,f.date,'INCOME',f.amount,'Meal card prepaid · ' || c.customer_name,'MEAL_CARD','',f.created_at
@@ -60,7 +60,7 @@ router.post('/transactions/erase', route(async (req, res) => {
         const expenses = await db.query('DELETE FROM expenses WHERE business=ANY($1::text[]) AND date BETWEEN $2 AND $3', [scope, from, to]);
         let hostelReceiptCount = 0;
         if (scope.includes('HOSTEL')) {
-            const receipts = await db.query<{ legacy_payment_id: string | null }>('DELETE FROM rent_receipts WHERE payment_date BETWEEN $1 AND $2 RETURNING legacy_payment_id', [from, to]);
+            const receipts = await db.query<{ legacy_payment_id: string | null }>('DELETE FROM rent_receipts WHERE payment_date BETWEEN $1 AND $2 AND reversed_at IS NULL RETURNING legacy_payment_id', [from, to]);
             hostelReceiptCount = receipts.rowCount ?? 0;
             const legacyIds = receipts.rows.map(receipt => receipt.legacy_payment_id).filter((id): id is string => !!id);
             if (legacyIds.length) await db.query('DELETE FROM hostel_payments WHERE id=ANY($1::uuid[])', [legacyIds]);

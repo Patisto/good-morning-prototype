@@ -8,7 +8,7 @@ export function business(value: unknown): SalesBusiness {
 // Stock carries forward for all businesses: opening stock is prior receipts less prior sales.
 export const inventorySelect = `SELECT p.*,
   COALESCE((SELECT SUM(e.quantity) FROM stock_entries e WHERE e.product_id=p.id
-    AND e.date <= $2::date),0) AS received,
+    AND e.date <= $2::date AND e.reversed_at IS NULL),0) AS received,
   COALESCE((SELECT SUM(i.quantity) FROM sale_items i JOIN sales s ON s.id=i.sale_id
     WHERE i.item_id=p.id::text AND s.inventory_tracked AND s.status='COMPLETED'
     AND s.date <= $2::date),0) AS sold

@@ -9,6 +9,24 @@ import { claimRequest, check, date, method, month, number, route, text, today, t
 const router = Router();
 router.use(requireAuth, requireSection('hostel'));
 const manage = requireManager('hostel');
+router.get('/status', route(async (req, res) => {
+    const period = month(req.query.month);
+    const result = await pool.query(`WITH balances AS (
+        SELECT c.expected_amount,c.opening_balance,COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS paid
+        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id
+        WHERE c.month=$1 GROUP BY c.id
+    ), eligible AS (
+        SELECT id FROM tenants WHERE deleted_at IS NULL AND to_char(move_in_date,'YYYY-MM') <= $1
+            AND (checkout_date IS NULL OR to_char(checkout_date,'YYYY-MM') >= $1)
+    )
+    SELECT COUNT(*) FILTER (WHERE opening_balance+paid-expected_amount<0)::int AS owing_count,
+        COALESCE(SUM(GREATEST(expected_amount-opening_balance-paid,0)),0) AS outstanding,
+        (SELECT COUNT(*)::int FROM eligible e WHERE NOT EXISTS (
+            SELECT 1 FROM rent_charges c WHERE c.tenant_id=e.id AND c.month=$1
+        )) AS missing_charge_count
+    FROM balances`, [period]);
+    res.json(result.rows[0]);
+}));
 router.get('/registration-invites', manage, route(async (_req, res) => {
     const result = await pool.query("SELECT id,phone_normalized,status,applicant,preferred_room_id,created_at,submitted_at FROM tenant_registration_invites ORDER BY created_at DESC");
     res.json(result.rows);
@@ -51,7 +69,7 @@ router.get('/', route(async (req, res) => {
       COALESCE((SELECT amount FROM room_rates WHERE room_id=r.id AND effective_month <= $1 ORDER BY effective_month DESC LIMIT 1),0) AS monthly_price
       FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`, [period]),
         pool.query('SELECT * FROM tenants WHERE deleted_at IS NULL ORDER BY last_name,first_name'),
-        pool.query(`SELECT c.*, COALESCE(SUM(p.amount),0) AS amount_paid FROM rent_charges c
+        pool.query(`SELECT c.*, COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS amount_paid FROM rent_charges c
       LEFT JOIN rent_receipts p ON p.charge_id=c.id WHERE c.month=$1 GROUP BY c.id`, [period]),
         pool.query('SELECT default_monthly_price FROM hostel_settings WHERE id=true'),
         pool.query('SELECT id,name FROM housing_units ORDER BY name'),
@@ -214,8 +232,25 @@ router.post('/charges', manage, route(async (req, res) => {
     res.json({ ok: true });
 }));
 router.get('/charges/:id/receipts', route(async (req, res) => {
-    const result = await pool.query('SELECT * FROM rent_receipts WHERE charge_id=$1 ORDER BY payment_date,created_at', [req.params.id]);
+    const result = await pool.query(`SELECT r.*,u.name AS reversed_by_name FROM rent_receipts r
+        LEFT JOIN users u ON u.id=r.reversed_by WHERE r.charge_id=$1 ORDER BY r.payment_date,r.created_at`, [req.params.id]);
     res.json({ receipts: result.rows });
+}));
+router.post('/charges/:id/receipts/:receiptId/reverse', manage, route(async (req, res) => {
+    const reason = text(req.body.reason, 'Reversal reason');
+    const receiptId = await transaction(async db => {
+        const receipt = await db.query(`SELECT p.id,p.payment_method,p.reversed_at
+            FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id
+            WHERE p.id=$1 AND c.id=$2 FOR UPDATE OF c,p`, [req.params.receiptId, req.params.id]);
+        check(receipt.rowCount, 'Payment receipt not found.', 404);
+        check(receipt.rows[0].payment_method !== 'PAYCHANGU', 'Online payments cannot be reversed here. Reconcile this payment with the payment provider.');
+        if (receipt.rows[0].reversed_at) return receipt.rows[0].id as string;
+        const result = await db.query(`UPDATE rent_receipts SET reversed_at=now(),reversed_by=$2,reversal_reason=$3
+            WHERE id=$1 AND reversed_at IS NULL RETURNING id`, [req.params.receiptId, req.user!.id, reason]);
+        check(result.rowCount, 'This payment has already been reversed.', 409);
+        return result.rows[0].id as string;
+    });
+    res.json({ id: receiptId });
 }));
 router.post('/charges/:id/payments', manage, route(async (req, res) => {
     const amount = number(req.body.amount, 'Payment', 0.01), paymentDate = date(req.body.paymentDate), paymentMethod = method(req.body.paymentMethod);

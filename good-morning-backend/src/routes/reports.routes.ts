@@ -10,10 +10,10 @@ router.get('/', route(async (req, res) => {
     const [revenue, expenses, balances] = await Promise.all([
         pool.query(`SELECT business,SUM(total) AS amount FROM sales WHERE status='COMPLETED' AND payment_method<>'MEAL_CARD' AND date BETWEEN $1 AND $2 GROUP BY business
       UNION ALL SELECT f.business,SUM(f.amount) FROM restaurant_meal_card_funding f WHERE f.date BETWEEN $1 AND $2 GROUP BY f.business
-      UNION ALL SELECT 'HOSTEL',COALESCE(SUM(amount),0) FROM rent_receipts WHERE payment_date BETWEEN $1 AND $2`, [from, to]),
+      UNION ALL SELECT 'HOSTEL',COALESCE(SUM(amount),0) FROM rent_receipts WHERE reversed_at IS NULL AND payment_date BETWEEN $1 AND $2`, [from, to]),
         pool.query('SELECT business,SUM(amount) AS amount FROM expenses WHERE date BETWEEN $1 AND $2 GROUP BY business', [from, to]),
         pool.query(`WITH accounts AS (
-          SELECT c.tenant_id,c.month,c.expected_amount,c.opening_balance,COALESCE(SUM(p.amount),0) AS paid,
+          SELECT c.tenant_id,c.month,c.expected_amount,c.opening_balance,COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS paid,
             row_number() OVER(PARTITION BY c.tenant_id ORDER BY c.month DESC) AS row_num
           FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id GROUP BY c.id
         ) SELECT COALESCE(SUM(GREATEST(expected_amount-opening_balance-paid,0)),0) AS outstanding,

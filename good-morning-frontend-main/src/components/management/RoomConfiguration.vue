@@ -163,7 +163,7 @@ function toggleVisible() {
               <button class="btn-secondary" :disabled="busy" @click="openRoom(room)">
                 Edit
               </button>
-              <button class="btn-secondary" :disabled="busy || room.occupants>0" @click="remove(room)">
+        <button class="btn-destructive" :disabled="busy || room.occupants>0" :title="room.occupants>0 ? 'Move all tenants out before deleting this room.' : 'Delete this room; historical rent records remain.'" :aria-label="room.occupants>0 ? `Delete ${room.label || room.identifier} unavailable: occupied` : `Delete ${room.label || room.identifier}`" @click="remove(room)">
                 Delete
               </button>
             </td>
