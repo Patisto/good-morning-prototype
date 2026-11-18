@@ -13,5 +13,11 @@ async function reconcile(reference) {
     await pool_1.pool.query("UPDATE payment_attempts SET status='EXPIRED',failure_reason='Payment window expired',updated_at=now() WHERE status IN ('PENDING','PROCESSING') AND expires_at<now()");
     return outcomes;
 }
-function startReconciliationScheduler() { setInterval(() => reconcile().catch(error => console.error('Payment reconciliation failed', error)), config_1.config.reconcileIntervalMinutes * 60000).unref(); }
+function startReconciliationScheduler() {
+    if (!config_1.config.paychanguConfigured) {
+        console.warn('PayChangu reconciliation is disabled until payment settings are configured.');
+        return;
+    }
+    setInterval(() => reconcile().catch(error => console.error('Payment reconciliation failed', error)), config_1.config.reconcileIntervalMinutes * 60000).unref();
+}
 //# sourceMappingURL=reconciliation.js.map

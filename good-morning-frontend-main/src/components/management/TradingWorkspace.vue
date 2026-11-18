@@ -25,7 +25,7 @@ type MealCard = { id: string; customerName: string; phone: string; balance: numb
 const mealCards = ref<MealCard[]>([]), selectedMealCardId = ref(''), chargedTotal = ref<number | null>(null);
 const mealCardDraft = ref({ customerName: '', phone: '', balance: 0, defaultCharge: 0 });
 const creditCustomer = ref('');
-const mobileNetwork = ref<'AIRTEL_MONEY' | 'TNM_MPAMBA'>('AIRTEL_MONEY'), customerPhone = ref('');
+const customerPhone = ref('');
 const paymentStatus = ref('');
 const calculator = ref({ paid: 0 });
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
@@ -46,7 +46,7 @@ async function addMealCard() {
         await api.post(`/restaurant/meal-cards?business=${business.value}`, mealCardDraft.value, auth.token);
         mealCardDraft.value = { customerName: '', phone: '', balance: 0, defaultCharge: 0 };
         await loadMealCards();
-    });ll
+    });
 }
 watch([business, date], () => { cart.value = []; productEditorOpen.value = false; stock.value = { productId: '', quantity: 0, notes: '' }; salesReceiptsOpen.value = false; stockReceiptsOpen.value = false; if (props.section === 'restaurant') void loadMealCards(); });
 watch(business, () => { if (props.section === 'restaurant') void loadMealCards(); }, { immediate: true });
@@ -67,13 +67,15 @@ async function checkout() {
             await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined });
         } else {
             paymentStatus.value = 'Submitting payment request…';
-            const initiated = await api.post<{ reference: string; status: string }>('/grocery/payments/initiate', { amount: cartTotal.value, items: cart.value, network: mobileNetwork.value, phone: customerPhone.value }, auth.token);
-            paymentStatus.value = 'Waiting for customer authorization on their phone…';
+            const initiated = await api.post<{ reference: string; checkout_url: string; status: string }>('/grocery/payments/initiate?business=GROCERY', { amount: cartTotal.value, items: cart.value, phone: customerPhone.value }, auth.token);
+            if (!initiated.checkout_url) throw new Error('PayChangu did not return a checkout URL.');
+            window.open(initiated.checkout_url, '_blank', 'noopener,noreferrer');
+            paymentStatus.value = 'Complete payment in the PayChangu checkout window…';
             const started = Date.now();
             let result: { status: string } = initiated;
             while (['PENDING', 'PROCESSING'].includes(result.status) && Date.now() - started < 120000) {
                 await new Promise(resolve => setTimeout(resolve, 3000));
-                result = await api.get<{ status: string }>(`/grocery/payments/${encodeURIComponent(initiated.reference)}/status`, auth.token);
+                result = await api.get<{ status: string }>(`/grocery/payments/${encodeURIComponent(initiated.reference)}/status?business=GROCERY`, auth.token);
                 if (result.status === 'SUCCEEDED') break;
             }
             if (result.status !== 'SUCCEEDED') throw new Error(result.status === 'PENDING' || result.status === 'PROCESSING' ? 'Payment is still pending. Refresh the sale status before retrying.' : `Payment ${result.status.toLowerCase()}.`);
@@ -197,7 +199,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
           <div v-for="(line,index) in cart" :key="line.itemId" class="flex items-end gap-2">
             <label class="field flex-1">
               {{ lineProduct(line.itemId)?.name }}
-              <input v-model.number="line.quantity" class="input" type="number" min="0.01" step="0.01" :max="lineProduct(line.itemId)?.currentStock" required />
+              <input v-model.number="line.quantity" class="input" type="number" :min="section === 'grocery' ? 1 : 0.01" :step="section === 'grocery' ? 1 : 0.01" :max="lineProduct(line.itemId)?.currentStock" required />
             </label>
             <button type="button" class="btn-secondary" :disabled="busy" @click="cart.splice(index,1)">
               Remove
@@ -230,16 +232,10 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
             <p v-if="selectedMealCard" class="text-xs text-ink-muted">Default {{ formatMWK(selectedMealCard.defaultCharge) }} · remaining balance {{ formatMWK(selectedMealCard.balance) }}</p>
           </template>
           <template v-if="paymentMethod === 'PAYCHANGU'">
-            <label class="field">Mobile money network
-              <select v-model="mobileNetwork" class="input">
-                <option value="AIRTEL_MONEY">Airtel Money</option>
-                <option value="TNM_MPAMBA">TNM Mpamba</option>
-              </select>
-            </label>
             <label class="field">Customer phone number
               <input v-model="customerPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="0999 123 456" required>
             </label>
-            <p class="text-sm text-ink-muted" role="status">The customer authorizes the request on their phone. Never ask for their PIN.</p>
+            <p class="text-sm text-ink-muted" role="status">PayChangu checkout lets the customer choose and authorize their payment method.</p>
             <p v-if="paymentStatus" class="text-sm" role="status">{{ paymentStatus }}</p>
           </template>
           <p class="text-xl font-semibold">
@@ -325,7 +321,7 @@ const soldToday = (id: string) => sales.value.filter(s => s.status === 'COMPLETE
         </label>
         <label class="field">
           Quantity received
-          <input v-model.number="stock.quantity" class="input" type="number" min="0.01" step="0.01" required />
+          <input v-model.number="stock.quantity" class="input" type="number" :min="section === 'grocery' ? 1 : 0.01" :step="section === 'grocery' ? 1 : 0.01" required />
         </label>
         <label class="field">
           Notes / Transaction Details

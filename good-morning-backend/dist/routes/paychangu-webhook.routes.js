@@ -8,6 +8,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const pool_1 = require("../db/pool");
 const paychangu_1 = require("../services/paychangu");
 const payment_1 = require("../services/payment");
+const groceryPayment_1 = require("../services/groceryPayment");
 const router = (0, express_1.Router)();
 router.post('/', async (req, res, next) => {
     try {
@@ -21,9 +22,20 @@ router.post('/', async (req, res, next) => {
         }
         catch { /* event is still auditable */ }
         const reference = typeof payload.tx_ref === 'string' ? payload.tx_ref : (typeof payload.reference === 'string' ? payload.reference : null);
-        const eventId = typeof payload.charge_id === 'string' ? payload.charge_id : null;
-        const attempt = reference ? await pool_1.pool.query('SELECT id FROM payment_attempts WHERE reference=$1', [reference]) : { rows: [] };
+        const chargeId = typeof payload.charge_id === 'string' ? payload.charge_id : null;
+        const eventId = chargeId;
         const auditPayload = { event_type: payload.event_type, tx_ref: payload.tx_ref, reference: payload.reference, charge_id: payload.charge_id, status: payload.status, amount: payload.amount, currency: payload.currency };
+        const grocery = chargeId ? await pool_1.pool.query('SELECT id,reference FROM grocery_payment_attempts WHERE charge_id=$1 OR reference=$1', [chargeId]) : { rows: [] };
+        if (grocery.rows[0]) {
+            await pool_1.pool.query(`INSERT INTO grocery_payment_events(grocery_payment_attempt_id,provider_event_id,event_type,payload_hash,payload,signature_valid)
+        VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [grocery.rows[0].id, eventId, String(payload.event_type || 'unknown'), hash, JSON.stringify(auditPayload), valid]);
+            if (!valid)
+                return res.status(401).json({ error: 'Invalid webhook signature.' });
+            const result = await groceryPayment_1.groceryPaymentService.verifyAndPost(grocery.rows[0].reference);
+            await pool_1.pool.query('UPDATE grocery_payment_events SET processed=true WHERE payload_hash=$1', [hash]);
+            return res.json({ received: true, result });
+        }
+        const attempt = reference ? await pool_1.pool.query('SELECT id FROM payment_attempts WHERE reference=$1', [reference]) : { rows: [] };
         await pool_1.pool.query(`INSERT INTO payment_events(payment_attempt_id,provider_event_id,event_type,payload_hash,raw_payload,signature_valid,processed,processing_result)
       VALUES($1,$2,$3,$4,$5,$6,false,$7) ON CONFLICT DO NOTHING`, [attempt.rows[0]?.id || null, eventId, String(payload.event_type || 'unknown'), hash, JSON.stringify(auditPayload), valid, valid ? 'received' : 'invalid_signature']);
         if (!valid)
