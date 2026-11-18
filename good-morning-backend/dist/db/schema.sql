@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS tenant_registration_invites (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone_normalized text NOT NULL UNIQUE,
+  token_hash text NOT NULL UNIQUE,
+  status text NOT NULL DEFAULT 'INVITED' CHECK (status IN ('INVITED','SUBMITTED','APPROVED','REVOKED')),
+  applicant jsonb,
+  preferred_room_id text REFERENCES rooms(id),
+  submitted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (
@@ -370,9 +382,8 @@ CREATE TABLE IF NOT EXISTS grocery_payment_attempts (
   business text NOT NULL CHECK (business='GROCERY'),
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
   currency text NOT NULL,
-  network text CHECK (network IN ('AIRTEL_MONEY','TNM_MPAMBA')),
-  phone text,
-  checkout_url text,
+  network text NOT NULL CHECK (network IN ('AIRTEL_MONEY','TNM_MPAMBA')),
+  phone text NOT NULL,
   items jsonb NOT NULL,
   cashier text NOT NULL,
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','EXPIRED')),
@@ -384,9 +395,6 @@ CREATE TABLE IF NOT EXISTS grocery_payment_attempts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE grocery_payment_attempts ADD COLUMN IF NOT EXISTS checkout_url text;
-ALTER TABLE grocery_payment_attempts ALTER COLUMN network DROP NOT NULL;
-ALTER TABLE grocery_payment_attempts ALTER COLUMN phone DROP NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grocery_payment_provider_transaction ON grocery_payment_attempts(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS grocery_payment_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

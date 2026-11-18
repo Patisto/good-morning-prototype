@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID, createHash } from 'crypto';
 import { ensureRentCharges, rentAccount } from '../services/rent';
 import { notifyOwnerOfPayment } from '../services/paymentNotifications';
 import { normalizeMalawiPhone } from '../services/phone';
@@ -9,6 +9,41 @@ import { claimRequest, check, date, method, month, number, route, text, today, t
 const router = Router();
 router.use(requireAuth, requireSection('hostel'));
 const manage = requireManager('hostel');
+router.get('/registration-invites', manage, route(async (_req, res) => {
+    const result = await pool.query("SELECT id,phone_normalized,status,applicant,preferred_room_id,created_at,submitted_at FROM tenant_registration_invites ORDER BY created_at DESC");
+    res.json(result.rows);
+}));
+router.post('/registration-invites', manage, route(async (req, res) => {
+    const phone = normalizeMalawiPhone(text(req.body.phone, 'Phone'));
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    await pool.query(`INSERT INTO tenant_registration_invites(phone_normalized,token_hash) VALUES($1,$2)
+      ON CONFLICT(phone_normalized) DO UPDATE SET token_hash=EXCLUDED.token_hash,status='INVITED',applicant=NULL,preferred_room_id=NULL,submitted_at=NULL,updated_at=now()`, [phone, tokenHash]);
+    const frontendUrl = (process.env.FRONTEND_URL?.split(',')[0]?.trim() || `${req.protocol}://${req.get('host') ?? ''}`).replace(/\/+$/, '');
+    res.json({ url: `${frontendUrl}/hostel/register/${token}` });
+}));
+router.post('/registration-invites/:id/approve', manage, route(async (req, res) => {
+    const roomId = text(req.body.roomId, 'Room');
+    const tenantId = randomUUID();
+    await transaction(async db => {
+        const invite = await db.query("SELECT * FROM tenant_registration_invites WHERE id=$1 AND status='SUBMITTED' FOR UPDATE", [req.params.id]);
+        check(invite.rowCount, 'Submitted registration not found.', 404);
+        const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
+        check(room.rowCount, 'Room not found.', 404);
+        const occupied = await db.query('SELECT COUNT(*)::int AS n FROM tenants WHERE room_id=$1 AND deleted_at IS NULL AND checkout_date IS NULL', [roomId]);
+        check(occupied.rows[0].n < room.rows[0].capacity, 'That room is full.');
+        const rate = await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1', [roomId,today().slice(0,7)]);
+        const applicant = invite.rows[0].applicant;
+        const fields: Record<string,string> = { firstName:'first_name',middleName:'middle_name',lastName:'last_name',gender:'gender',dateOfBirth:'date_of_birth',phone:'phone',altPhone:'alt_phone',email:'email',homeDistrict:'home_district',homeAddress:'home_address',emergencyContactName:'emergency_contact_name',emergencyContactPhone:'emergency_contact_phone',emergencyContactRelationship:'emergency_contact_relationship',institution:'institution',programme:'programme',faculty:'faculty',department:'department',yearOfStudy:'year_of_study',regNumber:'reg_number',academicYear:'academic_year',agreementSignature:'agreement_signature' };
+        const keys = Object.keys(fields).filter(key => applicant[key] !== undefined);
+        const cols = ['id','room_id','move_in_date','monthly_amount','agreement_status',...keys.map(key=>fields[key])];
+        const values: unknown[] = [tenantId,roomId,today(),rate.rows[0]?.amount ?? 0,'SIGNED',...keys.map(key=>applicant[key])];
+        await db.query(`INSERT INTO tenants(${cols.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')})`,values);
+        await db.query('INSERT INTO tenant_room_history(tenant_id,effective_month,room_id) VALUES($1,$2,$3)',[tenantId,today().slice(0,7),roomId]);
+        await db.query("UPDATE tenant_registration_invites SET status='APPROVED',updated_at=now() WHERE id=$1",[req.params.id]);
+    });
+    res.json({ok:true,id:tenantId});
+}));
 router.get('/', route(async (req, res) => {
     const period = month(req.query.month);
     const [rooms, tenants, charges, settings, units] = await Promise.all([

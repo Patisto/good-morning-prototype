@@ -15,9 +15,7 @@ function tradingRouter(section) {
     router.use(auth_1.requireAuth, (0, auth_1.requireSection)(section));
     router.use((req, res, next) => {
         try {
-            const scope = section === 'grocery'
-                ? 'GROCERY'
-                : (0, inventory_1.business)(req.query.business ?? req.body?.business);
+            const scope = (0, inventory_1.business)(req.query.business ?? req.body?.business);
             (0, http_1.check)(section === 'grocery' ? scope === 'GROCERY' : scope !== 'GROCERY', 'Wrong business for this section.', 403);
             res.locals.business = scope;
             next();
@@ -40,6 +38,7 @@ function tradingRouter(section) {
         router.post('/payments/initiate', (0, http_1.route)(async (req, res) => {
             const result = await groceryPayment_1.groceryPaymentService.initiate({
                 amount: req.body.amount,
+                network: req.body.network,
                 phone: req.body.phone,
                 items: req.body.items,
                 requestId: req.body.requestId,
@@ -97,8 +96,6 @@ function tradingRouter(section) {
     }));
     router.post('/stock', (0, auth_1.requireManager)(section), (0, http_1.route)(async (req, res) => {
         const b = req.body, day = (0, http_1.date)(b.date), quantity = (0, http_1.number)(b.quantity, 'Quantity', 0.01);
-        if (section === 'grocery')
-            (0, http_1.check)(Number.isInteger(quantity), 'Grocery stock quantities must be whole numbers.');
         (0, http_1.check)(day <= (0, http_1.today)(), 'Stock cannot be received in the future.');
         await (0, http_1.transaction)(async (db) => {
             if (!await (0, http_1.claimRequest)(db, b.requestId, req.user.id, `stock:${res.locals.business}`))

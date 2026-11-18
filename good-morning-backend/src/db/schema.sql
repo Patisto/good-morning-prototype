@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS tenant_registration_invites (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone_normalized text NOT NULL UNIQUE,
+  token_hash text NOT NULL UNIQUE,
+  status text NOT NULL DEFAULT 'INVITED' CHECK (status IN ('INVITED','SUBMITTED','APPROVED','REVOKED')),
+  applicant jsonb,
+  preferred_room_id text REFERENCES rooms(id),
+  submitted_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 CREATE TABLE IF NOT EXISTS hostel_payments (

@@ -15,6 +15,7 @@ const expenses_routes_1 = __importDefault(require("./routes/expenses.routes"));
 const users_routes_1 = __importDefault(require("./routes/users.routes"));
 const reports_routes_1 = __importDefault(require("./routes/reports.routes"));
 const public_payments_routes_1 = __importDefault(require("./routes/public-payments.routes"));
+const public_hostel_registration_routes_1 = __importDefault(require("./routes/public-hostel-registration.routes"));
 const paychangu_webhook_routes_1 = __importDefault(require("./routes/paychangu-webhook.routes"));
 const reconciliation_1 = require("./services/reconciliation");
 const config_1 = require("./config");
@@ -53,6 +54,7 @@ app.use((req, res, next) => { if (process.env.NODE_ENV === 'production' && req.h
 app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); next(); });
 app.use(express_1.default.json());
 app.use('/api/public/rental-payments', public_payments_routes_1.default);
+app.use('/api/public/hostel-registration', public_hostel_registration_routes_1.default);
 app.use('/api/auth', auth_routes_1.default);
 app.use('/api/hostel', hostel_routes_1.default);
 app.use('/api/restaurant', restaurant_routes_1.default);

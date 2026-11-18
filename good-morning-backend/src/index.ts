@@ -10,6 +10,7 @@ import expensesRoutes from './routes/expenses.routes';
 import usersRoutes from './routes/users.routes';
 import reportsRoutes from './routes/reports.routes';
 import publicPaymentRoutes from './routes/public-payments.routes';
+import publicHostelRegistrationRoutes from './routes/public-hostel-registration.routes';
 import paychanguWebhookRoutes from './routes/paychangu-webhook.routes';
 import { startReconciliationScheduler } from './services/reconciliation';
 import { config } from './config';
@@ -42,6 +43,7 @@ app.use((req, res, next) => { if (process.env.NODE_ENV === 'production' && req.h
 app.use((_req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer'); next(); });
 app.use(express.json());
 app.use('/api/public/rental-payments', publicPaymentRoutes);
+app.use('/api/public/hostel-registration', publicHostelRegistrationRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/hostel', hostelRoutes);
 app.use('/api/restaurant', restaurantRoutes);
