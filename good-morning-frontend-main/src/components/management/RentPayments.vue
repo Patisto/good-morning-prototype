@@ -77,6 +77,7 @@ async function saveNotes() {
       </p>
       <div class="flex flex-wrap gap-2">
         <router-link v-if="auth.canSee('finance')" class="btn-secondary" to="/finance?business=HOSTEL">View finances</router-link>
+        <router-link class="btn-secondary" to="/hostel?tab=payment-history">Payment history</router-link>
         <template v-if="auth.canManage('hostel')">
           <button class="btn-secondary" :disabled="busy" @click="run(()=>hostel.mutate('/charges',{ month:hostel.month }))">
             Generate monthly charges
