@@ -8,6 +8,7 @@ import ReasonModal from '@/components/ui/ReasonModal.vue';
 import { api, fromApi } from '@/lib/api';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
+import TradingPaymentHistory from './TradingPaymentHistory.vue';
 const props = defineProps<{
     section: 'restaurant' | 'grocery';
 }>();
@@ -360,6 +361,9 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
         </p>
         </div>
       </section>
+    </template>
+    <template v-else-if="tab==='payment-history'">
+      <TradingPaymentHistory :section="section" :business="business" />
     </template>
     <template v-else-if="tab==='stock'">
       <p class="text-sm text-ink-muted">

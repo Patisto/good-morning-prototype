@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { pool } from '../db/pool';
 import { requireAuth, requireSection, requireManager } from '../middleware/auth';
-import { claimRequest, check, date, method, number, route, text, today, transaction } from '../utils/http';
+import { claimRequest, check, date, method, month, number, route, text, today, transaction } from '../utils/http';
 import { business, inventorySelect, pricedLines } from '../services/inventory';
 import { notifyOwnerOfPayment } from '../services/paymentNotifications';
 import { groceryPaymentService } from '../services/groceryPayment';
@@ -35,6 +35,14 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
                 WHERE p.business=$1 AND e.date=$2 ORDER BY e.created_at DESC`, [scope, day]),
         ]);
         res.json({ products: products.rows.map(p => ({ ...p, current_stock: Number(p.received) - Number(p.sold) })), sales: sales.rows, entries: entries.rows });
+    }));
+    router.get('/payment-history', route(async (req,res)=>{
+        const period=req.query.month ? month(req.query.month) : null;
+        const result=await pool.query(`SELECT s.id,s.business,s.date,s.time,s.total,s.payment_method,s.cashier,s.credit_customer,s.created_at,
+          COALESCE(json_agg(json_build_object('name',i.name,'quantity',i.quantity,'unitPrice',i.unit_price)) FILTER(WHERE i.id IS NOT NULL),'[]') AS items
+          FROM sales s LEFT JOIN sale_items i ON i.sale_id=s.id WHERE s.business=$1 AND ($2::text IS NULL OR to_char(s.date,'YYYY-MM')=$2)
+          GROUP BY s.id ORDER BY s.date DESC,s.time DESC,s.created_at DESC`,[res.locals.business,period]);
+        res.json(result.rows);
     }));
     router.get('/status', route(async (req, res) => {
         const result = await pool.query(inventorySelect, [res.locals.business, date(req.query.date)]);

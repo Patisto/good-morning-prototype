@@ -39,6 +39,14 @@ function tradingRouter(section) {
         ]);
         res.json({ products: products.rows.map(p => ({ ...p, current_stock: Number(p.received) - Number(p.sold) })), sales: sales.rows, entries: entries.rows });
     }));
+    router.get('/payment-history', (0, http_1.route)(async (req, res) => {
+        const period = req.query.month ? (0, http_1.month)(req.query.month) : null;
+        const result = await pool_1.pool.query(`SELECT s.id,s.business,s.date,s.time,s.total,s.payment_method,s.cashier,s.credit_customer,s.created_at,
+          COALESCE(json_agg(json_build_object('name',i.name,'quantity',i.quantity,'unitPrice',i.unit_price)) FILTER(WHERE i.id IS NOT NULL),'[]') AS items
+          FROM sales s LEFT JOIN sale_items i ON i.sale_id=s.id WHERE s.business=$1 AND ($2::text IS NULL OR to_char(s.date,'YYYY-MM')=$2)
+          GROUP BY s.id ORDER BY s.date DESC,s.time DESC,s.created_at DESC`, [res.locals.business, period]);
+        res.json(result.rows);
+    }));
     router.get('/status', (0, http_1.route)(async (req, res) => {
         const result = await pool_1.pool.query(inventory_1.inventorySelect, [res.locals.business, (0, http_1.date)(req.query.date)]);
         const lowStock = result.rows

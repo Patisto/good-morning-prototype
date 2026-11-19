@@ -25,7 +25,7 @@ const currentSubsections = computed(() => {
     if (route.path === '/hostel') return [{ label: 'Rooms', tab: 'rooms' }, { label: 'Tenants', tab: 'tenants' }, { label: 'Monthly rent', tab: 'payments' }, { label: 'Payment history', tab: 'payment-history' }, ...(auth.canManage('hostel') ? [{ label: 'Room setup', tab: 'configuration' }] : [])];
     if (route.path === '/restaurant' || route.path === '/grocery') {
         const section = route.path.slice(1);
-        return [{ label: 'Sales', tab: 'sales' }, { label: 'Stock', tab: 'stock' }, ...(section === 'restaurant' ? [{ label: 'Meal cards', tab: 'meal-cards' }] : []), ...(auth.canManage(section) ? [{ label: 'Configuration', tab: 'configuration' }] : [])];
+        return [{ label: 'Sales', tab: 'sales' }, { label: 'Payment history', tab: 'payment-history' }, { label: 'Stock', tab: 'stock' }, ...(section === 'restaurant' ? [{ label: 'Meal cards', tab: 'meal-cards' }] : []), ...(auth.canManage(section) ? [{ label: 'Configuration', tab: 'configuration' }] : [])];
     }
     return [];
 });
