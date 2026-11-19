@@ -4,6 +4,7 @@ import { useHostelStore } from '@/stores/hostel';
 import { useAuthStore } from '@/stores/auth';
 import { useRoute } from 'vue-router';
 import RentPayments from '@/components/management/RentPayments.vue';
+import HostelPaymentHistory from '@/components/management/HostelPaymentHistory.vue';
 import RoomConfiguration from '@/components/management/RoomConfiguration.vue';
 import FormModal from '@/components/ui/FormModal.vue';
 import { useTask } from '@/composables/useTask';
@@ -218,6 +219,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       </p>
     </div>
     <RentPayments v-else-if="tab === 'payments'" />
+    <HostelPaymentHistory v-else-if="tab === 'payment-history'" />
     <RoomConfiguration v-else-if="tab === 'configuration' && canManage" />
 
   </div>

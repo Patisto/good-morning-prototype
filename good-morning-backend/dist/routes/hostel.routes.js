@@ -187,7 +187,7 @@ router.post('/tenants', manage, (0, http_1.route)(async (req, res) => {
             (0, http_1.check)(current.rows[0].move_in_date === moveIn, 'Move-in date cannot be changed after registration.');
             previousRoom = current.rows[0].room_id;
         }
-        const duplicate = await db.query('SELECT id FROM tenants WHERE phone_normalized=$1 AND id<>$2 AND deleted_at IS NULL', [phoneNormalized, id]);
+        const duplicate = await db.query('SELECT id FROM tenants WHERE phone_normalized=$1 AND id<>$2 AND deleted_at IS NULL AND checkout_date IS NULL', [phoneNormalized, id]);
         (0, http_1.check)(!duplicate.rowCount, 'That phone number is already registered to another active tenant.', 409);
         const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
         (0, http_1.check)(room.rowCount, 'Room not found.', 404);
@@ -236,6 +236,15 @@ router.get('/charges/:id/receipts', (0, http_1.route)(async (req, res) => {
     const result = await pool_1.pool.query(`SELECT r.*,u.name AS reversed_by_name FROM rent_receipts r
         LEFT JOIN users u ON u.id=r.reversed_by WHERE r.charge_id=$1 ORDER BY r.payment_date,r.created_at`, [req.params.id]);
     res.json({ receipts: result.rows });
+}));
+router.get('/payment-history', (0, http_1.route)(async (req, res) => {
+    const period = req.query.month ? (0, http_1.month)(req.query.month) : null;
+    const result = await pool_1.pool.query(`SELECT r.id,r.payment_date,r.payment_method,r.amount,r.reversed_at,r.reversal_reason,
+      c.id AS charge_id,c.month,t.id AS tenant_id,t.first_name,t.last_name,t.phone,u.name AS recorded_by_name
+      FROM rent_receipts r JOIN rent_charges c ON c.id=r.charge_id JOIN tenants t ON t.id=c.tenant_id
+      LEFT JOIN users u ON u.id=r.recorded_by WHERE ($1::text IS NULL OR to_char(r.payment_date,'YYYY-MM')=$1)
+      ORDER BY r.payment_date DESC,r.created_at DESC`, [period]);
+    res.json(result.rows);
 }));
 router.post('/charges/:id/receipts/:receiptId/reverse', manage, (0, http_1.route)(async (req, res) => {
     const reason = (0, http_1.text)(req.body.reason, 'Reversal reason');

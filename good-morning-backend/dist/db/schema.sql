@@ -356,7 +356,8 @@ CREATE OR REPLACE FUNCTION normalize_malawi_phone_sql(raw text) RETURNS text LAN
 $$;
 UPDATE tenants SET phone_normalized=normalize_malawi_phone_sql(phone) WHERE phone_normalized IS DISTINCT FROM normalize_malawi_phone_sql(phone);
 CREATE INDEX IF NOT EXISTS idx_tenants_phone_normalized ON tenants(phone_normalized);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_phone_normalized ON tenants(phone_normalized) WHERE phone_normalized IS NOT NULL AND deleted_at IS NULL;
+DROP INDEX IF EXISTS uq_tenants_phone_normalized;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_phone_normalized ON tenants(phone_normalized) WHERE phone_normalized IS NOT NULL AND deleted_at IS NULL AND checkout_date IS NULL;
 CREATE OR REPLACE FUNCTION sync_tenant_phone_normalized() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.phone_normalized := normalize_malawi_phone_sql(NEW.phone); RETURN NEW; END $$;
 DROP TRIGGER IF EXISTS tenants_phone_normalized_trigger ON tenants;

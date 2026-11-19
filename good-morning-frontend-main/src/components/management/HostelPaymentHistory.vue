@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import { api, fromApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/auth';
+import { useTask } from '@/composables/useTask';
+import { formatDisplayDateTime, formatMWK, today } from '@/types';
+import ReasonModal from '@/components/ui/ReasonModal.vue';
+type Receipt={id:string;chargeId:string;month:string;tenantId:string;firstName:string;lastName:string;phone:string;paymentDate:string;paymentMethod:string;amount:number;reversedAt:string|null;reversalReason:string;recordedByName:string|null};
+const auth=useAuthStore(),{busy,error,run}=useTask();const month=ref(today().slice(0,7)),receipts=ref<Receipt[]>([]),selected=ref<Receipt|null>(null);
+async function load(){receipts.value=fromApi<Receipt[]>(await api.get(`/hostel/payment-history?month=${month.value}`,auth.token));}
+watch(month,()=>void run(load),{immediate:true});
+async function reverse(reason:string){if(!selected.value)return;const receipt=selected.value;await run(async()=>{await api.post(`/hostel/charges/${receipt.chargeId}/receipts/${receipt.id}/reverse`,{reason},auth.token);selected.value=null;await load();});}
+</script>
+<template><div class="space-y-4"><div class="panel flex flex-wrap items-end justify-between gap-3"><label class="field">Payment month<input v-model="month" class="input" type="month" /></label><button class="btn-secondary" :disabled="busy" @click="run(load)">Refresh</button></div><p v-if="error" class="error">{{error}}</p><div class="overflow-x-auto"><table class="data-table"><thead><tr><th>Date</th><th>Tenant</th><th>Method</th><th>Amount</th><th>Recorded by</th><th>Status</th><th>Action</th></tr></thead><tbody><tr v-for="receipt in receipts" :key="receipt.id"><td>{{receipt.paymentDate}}</td><td>{{receipt.firstName}} {{receipt.lastName}}<span class="block text-xs text-ink-muted">{{receipt.phone}}</span></td><td>{{receipt.paymentMethod.replaceAll('_',' ')}}</td><td class="font-semibold">{{formatMWK(receipt.amount)}}</td><td>{{receipt.recordedByName||'System'}}</td><td><span v-if="receipt.reversedAt" class="text-red-700">Reversed {{formatDisplayDateTime(receipt.reversedAt)}} · {{receipt.reversalReason}}</span><span v-else>Recorded</span></td><td><button v-if="auth.canManage('hostel')&&!receipt.reversedAt&&receipt.paymentMethod!=='PAYCHANGU'" class="btn-secondary" :disabled="busy" @click="selected=receipt">Delete record</button></td></tr></tbody></table></div><p v-if="!receipts.length&&!busy" class="panel text-sm text-ink-muted">No hostel payments recorded for {{month}}.</p><ReasonModal v-if="selected" title="Delete payment record" description="This will reverse the payment in hostel balances and keep an audit record. Enter a reason to continue." :busy="busy" :error="error" @close="selected=null" @submit="reverse" /></div></template>
