@@ -58,6 +58,11 @@ async function saveNotes() {
     const id = history.value.id;
     await run(async () => { await hostel.mutate(`/charges/${id}/notes`, { notes: notes.value }); history.value = null; });
 }
+async function removePersonalData(charge:Charge){
+    if(!charge.checkoutDate)return;
+    if(!confirm(`Remove personal details for ${tenantName(charge.tenantId)}? Rent charges and payment history will remain under “Former Tenant”. This cannot be undone.`))return;
+    await run(async()=>{await api.delete(`/hostel/tenants/${charge.tenantId}/personal-data`,auth.token);await hostel.hydrate();});
+}
 </script>
 <template>
   <div class="space-y-4">
@@ -149,6 +154,9 @@ async function saveNotes() {
             <td class="space-x-2">
               <button class="btn-secondary" :disabled="busy" @click="openHistory(charge)">
                 Payment history & notes
+              </button>
+              <button v-if="auth.canManage('hostel') && charge.checkoutDate" class="btn-secondary text-danger" :disabled="busy" @click="removePersonalData(charge)">
+                Delete personal data
               </button>
             </td>
           </tr>

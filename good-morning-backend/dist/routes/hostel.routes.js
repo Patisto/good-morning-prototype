@@ -68,8 +68,8 @@ router.get('/', (0, http_1.route)(async (req, res) => {
       COALESCE((SELECT amount FROM room_rates WHERE room_id=r.id AND effective_month <= $1 ORDER BY effective_month DESC LIMIT 1),0) AS monthly_price
       FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`, [period]),
         pool_1.pool.query('SELECT * FROM tenants WHERE deleted_at IS NULL ORDER BY last_name,first_name'),
-        pool_1.pool.query(`SELECT c.*, COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS amount_paid FROM rent_charges c
-      LEFT JOIN rent_receipts p ON p.charge_id=c.id WHERE c.month=$1 GROUP BY c.id`, [period]),
+        pool_1.pool.query(`SELECT c.*,t.checkout_date, COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS amount_paid FROM rent_charges c
+      JOIN tenants t ON t.id=c.tenant_id LEFT JOIN rent_receipts p ON p.charge_id=c.id WHERE c.month=$1 GROUP BY c.id,t.checkout_date`, [period]),
         pool_1.pool.query('SELECT default_monthly_price FROM hostel_settings WHERE id=true'),
         pool_1.pool.query('SELECT id,name FROM housing_units ORDER BY name'),
     ]);
@@ -219,6 +219,15 @@ router.post('/tenants/:id/checkout', manage, (0, http_1.route)(async (req, res) 
     (0, http_1.check)(end === (0, http_1.today)(), 'Checkouts must be recorded for today.');
     const result = await pool_1.pool.query('UPDATE tenants SET checkout_date=$2,updated_at=now() WHERE id=$1 AND checkout_date IS NULL AND move_in_date <= $2 RETURNING id', [req.params.id, end]);
     (0, http_1.check)(result.rowCount, 'Active tenant not found or checkout is before move-in.', 400);
+    res.json({ ok: true });
+}));
+router.delete('/tenants/:id/personal-data', manage, (0, http_1.route)(async (req, res) => {
+    const result = await pool_1.pool.query(`UPDATE tenants SET first_name='Former',middle_name=NULL,last_name='Tenant',gender=NULL,date_of_birth=NULL,
+      phone=NULL,phone_normalized=NULL,alt_phone=NULL,email=NULL,home_district=NULL,home_address=NULL,
+      emergency_contact_name=NULL,emergency_contact_phone=NULL,emergency_contact_relationship=NULL,
+      institution=NULL,programme=NULL,faculty=NULL,department=NULL,year_of_study=NULL,reg_number=NULL,
+      academic_year=NULL,updated_at=now() WHERE id=$1 AND checkout_date IS NOT NULL RETURNING id`, [req.params.id]);
+    (0, http_1.check)(result.rowCount, 'Tenant must be checked out before personal data can be removed.', 400);
     res.json({ ok: true });
 }));
 router.post('/charges', manage, (0, http_1.route)(async (req, res) => {

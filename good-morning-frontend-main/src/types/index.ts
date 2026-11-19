@@ -148,6 +148,7 @@ export interface Charge {
     amountPaid: number;
     openingBalance: number;
     notes: string;
+    checkoutDate?: string | null;
 }
 export const businessName = (business: string) => ({ HOSTEL: 'Hostel', RESTAURANT_A: 'Upper restaurant', RESTAURANT_B: 'Lower restaurant', GROCERY: 'Grocery', GENERAL: 'General', RESTAURANT: 'Restaurant · Legacy records' }[business] ?? business);
 export const paymentMethods: PaymentMethod[] = ['CASH', 'AIRTEL_MONEY', 'TNM_MPAMBA', 'BANK', 'OTHER'];
