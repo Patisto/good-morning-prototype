@@ -1,47 +1,35 @@
 import { Router } from 'express';
-import { createHash } from 'crypto';
 import { normalizeMalawiPhone } from '../services/phone';
 import { pool } from '../db/pool';
-import { check, date, route, text, today, transaction } from '../utils/http';
-
+import { check, date, route, text, today } from '../utils/http';
 const router = Router();
-const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 const terms = [
   'The tenant agrees to pay the accommodation amount set by hostel management and keep the assigned room and shared areas clean.',
   'The room may not be transferred, sublet, or occupied beyond its approved capacity without written approval.',
   'The tenant agrees to follow reasonable hostel rules that protect residents, property, and safety.',
   'This agreement remains subject to the applicable Good Morning accommodation policies.'
 ];
-
-router.get('/:token', route(async (req, res) => {
-  const invite = await pool.query("SELECT status FROM tenant_registration_invites WHERE token_hash=$1", [hash(req.params.token)]);
-  check(invite.rowCount && invite.rows[0].status === 'INVITED', 'This registration link is invalid, used, or revoked.', 404);
+router.get('/', route(async (_req, res) => {
   const rooms = await pool.query(`SELECT r.id,r.label,r.identifier,u.name AS housing_unit,
     COALESCE((SELECT amount FROM room_rates WHERE room_id=r.id AND effective_month <= $1 ORDER BY effective_month DESC LIMIT 1),0) AS monthly_price
     FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`, [today().slice(0,7)]);
-  res.json({ terms, rooms: rooms.rows });
+  res.json({terms,rooms:rooms.rows});
 }));
-
-router.post('/:token', route(async (req, res) => {
-  const tokenHash = hash(req.params.token);
-  const b = req.body;
-  const phone = normalizeMalawiPhone(text(b.phone, 'Phone'));
-  check(b.agreed === true, 'You must agree to the accommodation terms.');
-  const first = text(b.firstName, 'First name'), last = text(b.lastName, 'Last name');
-  const allowed = ['middleName','gender','dateOfBirth','altPhone','email','homeDistrict','homeAddress','emergencyContactName','emergencyContactPhone','emergencyContactRelationship','institution','programme','faculty','department','yearOfStudy','regNumber','academicYear'];
-  const applicant: Record<string, unknown> = { firstName:first, lastName:last, phone:b.phone, agreementStatus:'SIGNED', agreementSignature:`PUBLIC_ACCEPTED:${new Date().toISOString()}` };
-  for (const key of allowed) {
-    const value = b[key];
-    check(value === undefined || value === null || typeof value === 'string' || (key === 'yearOfStudy' && Number.isInteger(value)), `Invalid ${key}.`);
-    if (value !== undefined) applicant[key] = value;
+router.post('/', route(async (req,res)=>{
+  const b=req.body, phone=text(b.phone,'Phone'); normalizeMalawiPhone(phone);
+  check(b.agreed===true,'You must agree to the accommodation terms.');
+  const applicant:Record<string,unknown>={};
+  for(const key of ['firstName','middleName','lastName','gender','dateOfBirth','phone','altPhone','email','homeDistrict','homeAddress','emergencyContactName','emergencyContactPhone','emergencyContactRelationship','institution','programme','faculty','department','yearOfStudy','regNumber','academicYear']){
+    const value=b[key];
+    check(value===undefined||value===null||typeof value==='string'||(key==='yearOfStudy'&&Number.isInteger(value)),`Invalid ${key}.`);
+    if(value!==undefined) applicant[key]=value;
   }
-  if (applicant.dateOfBirth) date(applicant.dateOfBirth);
-  const result = await pool.query(`UPDATE tenant_registration_invites SET status='SUBMITTED',applicant=$3::jsonb,
-    preferred_room_id=NULLIF($4,'') ,submitted_at=now(),updated_at=now()
-    WHERE token_hash=$1 AND phone_normalized=$2 AND status='INVITED' RETURNING id`,
-    [tokenHash, phone, JSON.stringify(applicant), typeof b.preferredRoomId === 'string' ? b.preferredRoomId : '']);
-  check(result.rowCount, 'Phone number does not match the invitation, or this link has already been used.', 403);
-  res.json({ ok:true });
+  applicant.firstName=text(b.firstName,'First name'); applicant.lastName=text(b.lastName,'Last name');
+  if(applicant.dateOfBirth) date(applicant.dateOfBirth);
+  if(applicant.yearOfStudy!==undefined&&applicant.yearOfStudy!==null) check(Number(applicant.yearOfStudy)>0,'Invalid year of study.');
+  const preferred=typeof b.preferredRoomId==='string'?b.preferredRoomId:'';
+  if(preferred) { const room=await pool.query('SELECT id FROM rooms WHERE id=$1 AND archived_at IS NULL',[preferred]); check(room.rowCount,'Choose a valid preferred room.'); }
+  const result=await pool.query('INSERT INTO tenant_applications(applicant,preferred_room_id,agreement_accepted_at) VALUES($1::jsonb,NULLIF($2,\'\'),now()) RETURNING id',[JSON.stringify(applicant),preferred]);
+  res.json({ok:true,id:result.rows[0].id});
 }));
-
 export default router;

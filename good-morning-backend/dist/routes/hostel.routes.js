@@ -11,41 +11,56 @@ const http_1 = require("../utils/http");
 const router = (0, express_1.Router)();
 router.use(auth_1.requireAuth, (0, auth_1.requireSection)('hostel'));
 const manage = (0, auth_1.requireManager)('hostel');
-router.get('/registration-invites', manage, (0, http_1.route)(async (_req, res) => {
-    const result = await pool_1.pool.query("SELECT id,phone_normalized,status,applicant,preferred_room_id,created_at,submitted_at FROM tenant_registration_invites ORDER BY created_at DESC");
-    res.json(result.rows);
+router.get('/status', (0, http_1.route)(async (req, res) => {
+    const period = (0, http_1.month)(req.query.month);
+    const result = await pool_1.pool.query(`WITH balances AS (
+        SELECT c.expected_amount,c.opening_balance,COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS paid
+        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id
+        WHERE c.month=$1 GROUP BY c.id
+    ), eligible AS (
+        SELECT id FROM tenants WHERE deleted_at IS NULL AND to_char(move_in_date,'YYYY-MM') <= $1
+            AND (checkout_date IS NULL OR to_char(checkout_date,'YYYY-MM') >= $1)
+    )
+    SELECT COUNT(*) FILTER (WHERE opening_balance+paid-expected_amount<0)::int AS owing_count,
+        COALESCE(SUM(GREATEST(expected_amount-opening_balance-paid,0)),0) AS outstanding,
+        (SELECT COUNT(*)::int FROM eligible e WHERE NOT EXISTS (
+            SELECT 1 FROM rent_charges c WHERE c.tenant_id=e.id AND c.month=$1
+        )) AS missing_charge_count
+    FROM balances`, [period]);
+    res.json(result.rows[0]);
 }));
-router.post('/registration-invites', manage, (0, http_1.route)(async (req, res) => {
-    const phone = (0, phone_1.normalizeMalawiPhone)((0, http_1.text)(req.body.phone, 'Phone'));
-    const token = (0, crypto_1.randomBytes)(32).toString('hex');
-    const tokenHash = (0, crypto_1.createHash)('sha256').update(token).digest('hex');
-    await pool_1.pool.query(`INSERT INTO tenant_registration_invites(phone_normalized,token_hash) VALUES($1,$2)
-      ON CONFLICT(phone_normalized) DO UPDATE SET token_hash=EXCLUDED.token_hash,status='INVITED',applicant=NULL,preferred_room_id=NULL,submitted_at=NULL,updated_at=now()`, [phone, tokenHash]);
-    const frontendUrl = (process.env.FRONTEND_URL?.split(',')[0]?.trim() || `${req.protocol}://${req.get('host') ?? ''}`).replace(/\/+$/, '');
-    res.json({ url: `${frontendUrl}/hostel/register/${token}` });
-}));
-router.post('/registration-invites/:id/approve', manage, (0, http_1.route)(async (req, res) => {
-    const roomId = (0, http_1.text)(req.body.roomId, 'Room');
-    const tenantId = (0, crypto_1.randomUUID)();
-    await (0, http_1.transaction)(async (db) => {
-        const invite = await db.query("SELECT * FROM tenant_registration_invites WHERE id=$1 AND status='SUBMITTED' FOR UPDATE", [req.params.id]);
-        (0, http_1.check)(invite.rowCount, 'Submitted registration not found.', 404);
-        const room = await db.query('SELECT * FROM rooms WHERE id=$1 AND archived_at IS NULL FOR UPDATE', [roomId]);
-        (0, http_1.check)(room.rowCount, 'Room not found.', 404);
-        const occupied = await db.query('SELECT COUNT(*)::int AS n FROM tenants WHERE room_id=$1 AND deleted_at IS NULL AND checkout_date IS NULL', [roomId]);
-        (0, http_1.check)(occupied.rows[0].n < room.rows[0].capacity, 'That room is full.');
-        const rate = await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1', [roomId, (0, http_1.today)().slice(0, 7)]);
-        const applicant = invite.rows[0].applicant;
-        const fields = { firstName: 'first_name', middleName: 'middle_name', lastName: 'last_name', gender: 'gender', dateOfBirth: 'date_of_birth', phone: 'phone', altPhone: 'alt_phone', email: 'email', homeDistrict: 'home_district', homeAddress: 'home_address', emergencyContactName: 'emergency_contact_name', emergencyContactPhone: 'emergency_contact_phone', emergencyContactRelationship: 'emergency_contact_relationship', institution: 'institution', programme: 'programme', faculty: 'faculty', department: 'department', yearOfStudy: 'year_of_study', regNumber: 'reg_number', academicYear: 'academic_year', agreementSignature: 'agreement_signature' };
-        const keys = Object.keys(fields).filter(key => applicant[key] !== undefined);
-        const cols = ['id', 'room_id', 'move_in_date', 'monthly_amount', 'agreement_status', ...keys.map(key => fields[key])];
-        const values = [tenantId, roomId, (0, http_1.today)(), rate.rows[0]?.amount ?? 0, 'SIGNED', ...keys.map(key => applicant[key])];
-        await db.query(`INSERT INTO tenants(${cols.join(',')}) VALUES(${values.map((_, i) => `$${i + 1}`).join(',')})`, values);
-        await db.query('INSERT INTO tenant_room_history(tenant_id,effective_month,room_id) VALUES($1,$2,$3)', [tenantId, (0, http_1.today)().slice(0, 7), roomId]);
-        await db.query("UPDATE tenant_registration_invites SET status='APPROVED',updated_at=now() WHERE id=$1", [req.params.id]);
-    });
-    res.json({ ok: true, id: tenantId });
-}));
+router.get('/applications', manage, (0, http_1.route)(async (_req, res) => { const result = await pool_1.pool.query("SELECT * FROM tenant_applications ORDER BY CASE status WHEN 'PENDING' THEN 0 ELSE 1 END,created_at DESC"); res.json(result.rows); }));
+async function approveApplication(db, id, requestedRoom) {
+    const app = await db.query("SELECT * FROM tenant_applications WHERE id=$1 AND status='PENDING' FOR UPDATE", [id]);
+    (0, http_1.check)(app.rowCount, 'Pending application not found.', 404);
+    const preferred = requestedRoom || app.rows[0].preferred_room_id;
+    const rooms = await db.query(`SELECT r.*,(SELECT COUNT(*)::int FROM tenants t WHERE t.room_id=r.id AND t.deleted_at IS NULL AND t.checkout_date IS NULL) AS occupants
+      FROM rooms r WHERE r.archived_at IS NULL AND ($1::text IS NULL OR r.id=$1) ORDER BY (r.id=$1) DESC,r.identifier FOR UPDATE`, [preferred]);
+    const room = rooms.rows.find(r => r.occupants < r.capacity);
+    (0, http_1.check)(room, 'No available room for this application.');
+    const a = app.rows[0].applicant, idTenant = (0, crypto_1.randomUUID)();
+    const map = { firstName: 'first_name', middleName: 'middle_name', lastName: 'last_name', gender: 'gender', dateOfBirth: 'date_of_birth', phone: 'phone', altPhone: 'alt_phone', email: 'email', homeDistrict: 'home_district', homeAddress: 'home_address', emergencyContactName: 'emergency_contact_name', emergencyContactPhone: 'emergency_contact_phone', emergencyContactRelationship: 'emergency_contact_relationship', institution: 'institution', programme: 'programme', faculty: 'faculty', department: 'department', yearOfStudy: 'year_of_study', regNumber: 'reg_number', academicYear: 'academic_year' };
+    const keys = Object.keys(map).filter(k => a[k] !== undefined && a[k] !== null && a[k] !== '');
+    const cols = ['id', 'room_id', 'move_in_date', 'monthly_amount', 'agreement_status', 'agreement_signature', ...keys.map(k => map[k])];
+    const values = [idTenant, room.id, (0, http_1.today)(), (await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1', [room.id, (0, http_1.today)().slice(0, 7)])).rows[0]?.amount ?? 0, 'SIGNED', `PUBLIC_ACCEPTED:${app.rows[0].agreement_accepted_at.toISOString()}`, ...keys.map(k => a[k])];
+    await db.query(`INSERT INTO tenants(${cols.join(',')}) VALUES(${values.map((_, i) => `$${i + 1}`).join(',')})`, values);
+    await db.query('INSERT INTO tenant_room_history(tenant_id,effective_month,room_id) VALUES($1,$2,$3)', [idTenant, (0, http_1.today)().slice(0, 7), room.id]);
+    await db.query("UPDATE tenant_applications SET status='APPROVED',reviewed_at=now() WHERE id=$1", [id]);
+    return idTenant;
+}
+router.post('/applications/:id/approve', manage, (0, http_1.route)(async (req, res) => { const id = await (0, http_1.transaction)(db => approveApplication(db, req.params.id, req.body.roomId)); res.json({ ok: true, id }); }));
+router.post('/applications/:id/deny', manage, (0, http_1.route)(async (req, res) => { const result = await pool_1.pool.query("UPDATE tenant_applications SET status='DENIED',reviewed_at=now() WHERE id=$1 AND status='PENDING' RETURNING id", [req.params.id]); (0, http_1.check)(result.rowCount, 'Pending application not found.', 404); res.json({ ok: true }); }));
+router.post('/applications/approve-all', manage, (0, http_1.route)(async (_req, res) => { const ids = (await pool_1.pool.query("SELECT id FROM tenant_applications WHERE status='PENDING' ORDER BY created_at,id")).rows.map(r => r.id); const result = await (0, http_1.transaction)(async (db) => { let approved = 0; for (const id of ids) {
+    try {
+        await approveApplication(db, id);
+        approved++;
+    }
+    catch (e) {
+        if (e.status === 404)
+            continue;
+        throw e;
+    }
+} return approved; }); res.json({ approved: result }); }));
 router.get('/', (0, http_1.route)(async (req, res) => {
     const period = (0, http_1.month)(req.query.month);
     const [rooms, tenants, charges, settings, units] = await Promise.all([
@@ -53,7 +68,7 @@ router.get('/', (0, http_1.route)(async (req, res) => {
       COALESCE((SELECT amount FROM room_rates WHERE room_id=r.id AND effective_month <= $1 ORDER BY effective_month DESC LIMIT 1),0) AS monthly_price
       FROM rooms r JOIN housing_units u ON u.id=r.housing_unit_id WHERE r.archived_at IS NULL ORDER BY u.name,r.identifier`, [period]),
         pool_1.pool.query('SELECT * FROM tenants WHERE deleted_at IS NULL ORDER BY last_name,first_name'),
-        pool_1.pool.query(`SELECT c.*, COALESCE(SUM(p.amount),0) AS amount_paid FROM rent_charges c
+        pool_1.pool.query(`SELECT c.*, COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL),0) AS amount_paid FROM rent_charges c
       LEFT JOIN rent_receipts p ON p.charge_id=c.id WHERE c.month=$1 GROUP BY c.id`, [period]),
         pool_1.pool.query('SELECT default_monthly_price FROM hostel_settings WHERE id=true'),
         pool_1.pool.query('SELECT id,name FROM housing_units ORDER BY name'),
@@ -218,8 +233,26 @@ router.post('/charges', manage, (0, http_1.route)(async (req, res) => {
     res.json({ ok: true });
 }));
 router.get('/charges/:id/receipts', (0, http_1.route)(async (req, res) => {
-    const result = await pool_1.pool.query('SELECT * FROM rent_receipts WHERE charge_id=$1 ORDER BY payment_date,created_at', [req.params.id]);
+    const result = await pool_1.pool.query(`SELECT r.*,u.name AS reversed_by_name FROM rent_receipts r
+        LEFT JOIN users u ON u.id=r.reversed_by WHERE r.charge_id=$1 ORDER BY r.payment_date,r.created_at`, [req.params.id]);
     res.json({ receipts: result.rows });
+}));
+router.post('/charges/:id/receipts/:receiptId/reverse', manage, (0, http_1.route)(async (req, res) => {
+    const reason = (0, http_1.text)(req.body.reason, 'Reversal reason');
+    const receiptId = await (0, http_1.transaction)(async (db) => {
+        const receipt = await db.query(`SELECT p.id,p.payment_method,p.reversed_at
+            FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id
+            WHERE p.id=$1 AND c.id=$2 FOR UPDATE OF c,p`, [req.params.receiptId, req.params.id]);
+        (0, http_1.check)(receipt.rowCount, 'Payment receipt not found.', 404);
+        (0, http_1.check)(receipt.rows[0].payment_method !== 'PAYCHANGU', 'Online payments cannot be reversed here. Reconcile this payment with the payment provider.');
+        if (receipt.rows[0].reversed_at)
+            return receipt.rows[0].id;
+        const result = await db.query(`UPDATE rent_receipts SET reversed_at=now(),reversed_by=$2,reversal_reason=$3
+            WHERE id=$1 AND reversed_at IS NULL RETURNING id`, [req.params.receiptId, req.user.id, reason]);
+        (0, http_1.check)(result.rowCount, 'This payment has already been reversed.', 409);
+        return result.rows[0].id;
+    });
+    res.json({ id: receiptId });
 }));
 router.post('/charges/:id/payments', manage, (0, http_1.route)(async (req, res) => {
     const amount = (0, http_1.number)(req.body.amount, 'Payment', 0.01), paymentDate = (0, http_1.date)(req.body.paymentDate), paymentMethod = (0, http_1.method)(req.body.paymentMethod);

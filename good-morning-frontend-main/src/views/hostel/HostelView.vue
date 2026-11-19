@@ -10,6 +10,7 @@ import { useTask } from '@/composables/useTask';
 import { downloadAgreement } from '@/lib/accommodation-agreement';
 import StatusPill from '@/components/ui/StatusPill.vue';
 import SearchInput from '@/components/ui/SearchInput.vue';
+import { api, fromApi } from '@/lib/api';
 import { formatMWK, today } from '@/types';
 import type { Room, Tenant } from '@/types';
 type TenantDraft = Omit<Tenant, 'id'>;
@@ -21,12 +22,19 @@ watch(() => route.query.tab, value => { tab.value = String(value || 'rooms'); })
 const unitFilter = ref('');
 const roomStatusFilter = ref<'ALL' | 'VACANT' | 'PARTIAL' | 'OCCUPIED'>('ALL');
 const { busy, error, run } = useTask();
-onMounted(() => run(() => hostel.hydrate()));
+onMounted(() => run(async () => { await hostel.hydrate(); if (canManage.value) await loadApplications(); }));
 const search = ref('');
 const selectedRoom = ref<Room | null>(null);
 const selectedTenant = ref<Tenant | null>(null);
 const editing = ref(false);
 const savingError = ref('');
+type TenantApplication={id:string;applicant:Record<string,unknown>;preferredRoomId:string|null;status:'PENDING'|'APPROVED'|'DENIED';agreementAcceptedAt:string;createdAt:string};
+const applications=ref<TenantApplication[]>([]), applicationRooms=ref<Record<string,string>>({});
+const publicRegistrationUrl=`${window.location.origin}/hostel/register`;
+async function loadApplications(){applications.value=fromApi<TenantApplication[]>(await api.get('/hostel/applications',auth.token));}
+async function copyRegistrationLink(){await navigator.clipboard.writeText(publicRegistrationUrl);}
+async function reviewApplication(application:TenantApplication,decision:'approve'|'deny'){await run(async()=>{if(decision==='approve') await api.post(`/hostel/applications/${application.id}/approve`,{roomId:applicationRooms.value[application.id]||application.preferredRoomId||undefined},auth.token);else await api.post(`/hostel/applications/${application.id}/deny`,{},auth.token);await Promise.all([hostel.hydrate(),loadApplications()]);});}
+async function approveAll(){if(!confirm('Approve all pending applications? Each applicant will be assigned their preferred available room or the next available room.'))return;await run(async()=>{await api.post('/hostel/applications/approve-all',{},auth.token);await Promise.all([hostel.hydrate(),loadApplications()]);});}
 const canManage = computed(() => auth.canManage('hostel'));
 const roomsByUnit = computed(() => {
     const groups = new Map<string, Room[]>();
@@ -114,6 +122,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       <button v-if="canManage && tab === 'tenants'" type="button" class="btn" @click="addTenant">
         Register tenant
       </button>
+      <button v-if="canManage && tab === 'tenants'" type="button" class="btn-secondary" @click="copyRegistrationLink">Copy public registration link</button>
     </div>
     <div v-if="tab === 'rooms'" class="space-y-6">
       <label class="field max-w-sm">Housing unit
@@ -142,6 +151,14 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       </div>
     </div>
     <div v-else-if="tab === 'tenants'" class="space-y-3">
+      <section v-if="canManage" class="panel space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-semibold">Public applications</h3><p class="text-sm text-ink-muted">Share {{ publicRegistrationUrl }}. Applicants submit their phone number, details, and agreement; review them here.</p></div><button v-if="applications.some(a=>a.status==='PENDING')" class="btn" :disabled="busy" @click="approveAll">Approve all pending</button></div>
+        <article v-for="application in applications" v-show="application.status==='PENDING'" :key="application.id" class="rounded border border-line p-3">
+          <div class="flex flex-wrap items-start justify-between gap-3"><div><h4 class="font-medium">{{ application.applicant.firstName }} {{ application.applicant.middleName }} {{ application.applicant.lastName }}</h4><p class="text-sm text-ink-muted">{{ application.applicant.phone }} · {{ application.applicant.email || 'No email' }} · {{ application.applicant.institution || 'No institution' }}</p><p class="mt-1 text-xs text-ink-muted">Agreement accepted {{ application.agreementAcceptedAt }}</p></div><StatusPill tone="pending" label="Pending review" /></div>
+          <div class="mt-3 flex flex-wrap items-end gap-2"><label class="field min-w-56">Allocate room<select v-model="applicationRooms[application.id]" class="input"><option value="">{{ application.preferredRoomId ? `Preferred: ${roomName(application.preferredRoomId)}` : 'Choose available room' }}</option><option v-for="room in availableRooms" :key="room.id" :value="room.id">{{room.housingUnit}} · {{room.label||room.identifier}} ({{room.occupants}}/{{room.capacity}})</option></select></label><button class="btn" :disabled="busy" @click="reviewApplication(application,'approve')">Approve</button><button class="btn-secondary" :disabled="busy" @click="reviewApplication(application,'deny')">Deny</button></div>
+        </article>
+        <p v-if="!applications.some(a=>a.status==='PENDING')" class="text-sm text-ink-muted">No applications awaiting review.</p>
+      </section>
       <SearchInput v-model="search" placeholder="Search tenants by name or room…" />
       <div class="overflow-x-auto rounded border border-line bg-surface">
         <table class="w-full min-w-[640px] text-sm">

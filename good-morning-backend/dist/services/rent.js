@@ -9,7 +9,7 @@ async function rentAccount(db, tenantId, period, lockTenant = false) {
     (0, http_1.check)(tenant.rowCount, 'Tenant not found.', 404);
     const t = tenant.rows[0];
     const invoice = await db.query(`SELECT c.id,c.expected_amount,c.opening_balance,COALESCE(SUM(p.amount),0) AS amount_paid
-        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id
+        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id AND p.reversed_at IS NULL
         WHERE c.tenant_id=$1 AND c.month=$2 GROUP BY c.id`, [t.id, period]);
     if (invoice.rows[0])
         return { tenantId: t.id, chargeId: invoice.rows[0].id, expectedAmount: Number(invoice.rows[0].expected_amount), amountPaid: Number(invoice.rows[0].amount_paid), openingBalance: Number(invoice.rows[0].opening_balance) };
@@ -19,7 +19,7 @@ async function rentAccount(db, tenantId, period, lockTenant = false) {
         (SELECT room_id FROM tenant_room_history WHERE tenant_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1),$3)
         AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1`, [t.id, period, t.room_id]);
     const previous = await db.query(`SELECT c.opening_balance+COALESCE(SUM(p.amount),0)-c.expected_amount AS closing_balance
-        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id WHERE c.tenant_id=$1 AND c.month<$2
+        FROM rent_charges c LEFT JOIN rent_receipts p ON p.charge_id=c.id AND p.reversed_at IS NULL WHERE c.tenant_id=$1 AND c.month<$2
         GROUP BY c.id ORDER BY c.month DESC LIMIT 1`, [t.id, period]);
     return { tenantId: t.id, chargeId: null, expectedAmount: Number(rate.rows[0]?.amount ?? t.monthly_amount), amountPaid: 0, openingBalance: Number(previous.rows[0]?.closing_balance ?? 0) };
 }
