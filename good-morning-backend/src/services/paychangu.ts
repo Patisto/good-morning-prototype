@@ -16,7 +16,12 @@ export class PayChanguService {
       try {
         const response = await fetch(`${config.paychanguBaseUrl.replace(/\/$/, '')}${path}`, { ...init, signal: controller.signal, headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${config.paychanguSecretKey}`, ...(init.headers || {}) } });
         const body = await response.json().catch(() => ({})) as any;
-        if (!response.ok) { if (response.status >= 500 && attempt < retries) { await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1))); continue; } throw new Error(`PayChangu request failed with HTTP ${response.status}`); }
+        if (!response.ok) {
+          if (response.status >= 500 && attempt < retries) { await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1))); continue; }
+          const providerReason = [body?.message, body?.error, body?.errors]
+            .filter(Boolean).map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('; ').slice(0, 300);
+          throw new Error(`PayChangu request failed with HTTP ${response.status}${providerReason ? `: ${providerReason}` : ''}`);
+        }
         return body;
       } catch (error) { if (attempt < retries) { await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1))); continue; } throw error; }
       finally { clearTimeout(timer); }
@@ -48,7 +53,7 @@ export class PayChanguService {
     const body = await this.request('/mobile-money/payments/initialize', {
       method: 'POST',
       body: JSON.stringify({
-        mobile: input.mobile,
+        mobile: input.mobile.startsWith('+') ? input.mobile : `+${input.mobile}`,
         mobile_money_operator_ref_id: input.operatorRef,
         amount: input.amount,
         charge_id: input.chargeId,
