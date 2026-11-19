@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import { pool } from '../db/pool';
 import { config } from '../config';
 import { check, HttpError, transaction } from '../utils/http';
-import { normalizeMalawiPhone } from './phone';
 import { payChangu, DirectCharge, ProviderPayment } from './paychangu';
 
 type SaleLine = { itemId: string; name: string; quantity: number; unitPrice: number };
@@ -15,9 +14,8 @@ const cents = (value: string | number) => {
 const canonicalCurrency = (value: string) => value.toUpperCase() === 'MK' ? 'MWK' : value.toUpperCase();
 
 export class GroceryPaymentService {
-  async initiate(input: { amount: unknown; phone: unknown; items: unknown; requestId?: unknown; userId: string; cashier: string }) {
+  async initiate(input: { amount: unknown; items: unknown; requestId?: unknown; userId: string; cashier: string }) {
     check(config.paychanguConfigured, 'PayChangu payments are not configured.', 503);
-    const phone = normalizeMalawiPhone(input.phone);
     const amount = Number(input.amount);
     check(Number.isFinite(amount) && amount > 0, 'Invalid payment amount.');
     check(Array.isArray(input.items) && input.items.length > 0 && input.items.length <= 100, 'A sale must contain items.');
@@ -46,7 +44,7 @@ export class GroceryPaymentService {
       check(totalCents === cents(amount), 'Payment amount does not match the sale total.');
       const reference = `GMS-${crypto.randomBytes(16).toString('hex')}`;
       const result = await db.query(`INSERT INTO grocery_payment_attempts(reference,charge_id,business,amount,currency,network,phone,items,cashier,status,request_id,expires_at)
-        VALUES($1,$1,'GROCERY',$2,$3,NULL,$4,$5,$6,'PENDING',$7,now()+interval '30 minutes') RETURNING reference,charge_id,status,amount`, [reference, amount.toFixed(2), config.currency, phone, JSON.stringify(lines), input.cashier, requestId]);
+        VALUES($1,$1,'GROCERY',$2,$3,NULL,NULL,$4,$5,'PENDING',$6,now()+interval '30 minutes') RETURNING reference,charge_id,status,amount`, [reference, amount.toFixed(2), config.currency, JSON.stringify(lines), input.cashier, requestId]);
       return { created: result.rows[0] };
     });
     if (created.existing) {

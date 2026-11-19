@@ -53,7 +53,9 @@ export class PayChanguService {
     const body = await this.request('/mobile-money/payments/initialize', {
       method: 'POST',
       body: JSON.stringify({
-        mobile: input.mobile.startsWith('+') ? input.mobile : `+${input.mobile}`,
+        // PayChangu Direct Charge expects Malawi's nine-digit national number,
+        // unlike its hosted checkout API which accepts the international form.
+        mobile: input.mobile.replace(/^\+?265/, '').replace(/^0/, ''),
         mobile_money_operator_ref_id: input.operatorRef,
         amount: input.amount,
         charge_id: input.chargeId,

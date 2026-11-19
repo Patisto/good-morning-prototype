@@ -7,13 +7,14 @@ import ProductEditorModal from './ProductEditorModal.vue';
 import ReasonModal from '@/components/ui/ReasonModal.vue';
 import { api, fromApi } from '@/lib/api';
 import { useRoute } from 'vue-router';
+import QRCode from 'qrcode';
 const props = defineProps<{
     section: 'restaurant' | 'grocery';
 }>();
 const auth = useAuthStore();
 const route = useRoute();
 const { business, date, products, sales, entries, canManage, revenue, busy, error, run, load, save, remove, sell } = useTrading(props.section);
-const tab = ref(String(route.query.tab || 'sales')), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH'), paymentNetwork = ref<'AIRTEL_MONEY' | 'TNM_MPAMBA'>('AIRTEL_MONEY');
+const tab = ref(String(route.query.tab || 'sales')), search = ref(''), paymentMethod = ref<PaymentMethod>('CASH');
 watch(() => route.query.tab, value => { tab.value = String(value || 'sales'); });
 const cart = ref<{
     itemId: string;
@@ -27,8 +28,8 @@ type MealCard = { id: string; customerName: string; phone: string; balance: numb
 const mealCards = ref<MealCard[]>([]), selectedMealCardId = ref(''), chargedTotal = ref<number | null>(null);
 const mealCardDraft = ref({ customerName: '', phone: '', balance: 0, defaultCharge: 0 });
 const creditCustomer = ref('');
-const customerPhone = ref('');
-const paymentStatus = ref('');
+const paymentSession = ref<{reference:string;checkoutUrl:string;qrDataUrl:string;status:string}|null>(null);
+let paymentPollTimer: ReturnType<typeof setInterval> | undefined;
 const calculator = ref({ paid: 0 });
 const cashReceived = ref<number | null>(null);
 const salesReceiptsOpen = ref(false), stockReceiptsOpen = ref(false);
@@ -62,19 +63,20 @@ const cartValid = computed(() => cart.value.length > 0 && cart.value.every(line 
 const canSubmitSale = computed(() => !busy.value && cartValid.value
     && (paymentMethod.value !== 'CASH' || Number(cashReceived.value ?? 0) >= cartTotal.value)
     && (paymentMethod.value !== 'MEAL_CARD' || (!!selectedMealCardId.value && Number(chargedTotal.value) > 0))
-    && (paymentMethod.value !== 'CREDIT' || !!creditCustomer.value.trim())
-    && (paymentMethod.value !== 'PAYCHANGU' || !!customerPhone.value.trim()));
+    && (paymentMethod.value !== 'CREDIT' || !!creditCustomer.value.trim()));
 const saleDisabledReason = computed(() => busy.value ? 'Please wait for the current request to finish.'
     : !cart.value.length ? 'Choose at least one in-stock item.'
         : !cartValid.value ? 'Check each quantity against the available stock.'
             : paymentMethod.value === 'CASH' && Number(cashReceived.value ?? 0) < cartTotal.value ? 'Enter the full amount received before recording this cash sale.'
                 : paymentMethod.value === 'MEAL_CARD' && !selectedMealCardId.value ? 'Select a meal card customer.'
                     : paymentMethod.value === 'MEAL_CARD' && !(Number(chargedTotal.value) > 0) ? 'Enter the meal charge.'
-                        : paymentMethod.value === 'CREDIT' && !creditCustomer.value.trim() ? 'Enter the customer name for this credit sale.'
-                            : paymentMethod.value === 'PAYCHANGU' && !customerPhone.value.trim() ? 'Enter the customer phone number for PayChangu.' : '');
+                        : paymentMethod.value === 'CREDIT' && !creditCustomer.value.trim() ? 'Enter the customer name for this credit sale.' : '');
 const canSell = computed(() => auth.role !== 'ACCOUNTANT' && date.value === today());
 const salePaymentMethods = computed(() => props.section === 'restaurant' ? ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','MEAL_CARD','PAYCHANGU'] : ['CASH','AIRTEL_MONEY','TNM_MPAMBA','BANK','CREDIT','PAYCHANGU']);
 const selectedMealCard = computed(() => mealCards.value.find(card => card.id === selectedMealCardId.value));
+function closePaymentScreen(){if(paymentPollTimer)clearInterval(paymentPollTimer);paymentPollTimer=undefined;paymentSession.value=null;cart.value=[];selectedMealCardId.value='';chargedTotal.value=null;creditCustomer.value='';cashReceived.value=null;}
+async function pollPayment(reference:string){try{const state=await api.get<{status:string}>(`${props.section}/payments/${encodeURIComponent(reference)}/status?business=${business.value}`,auth.token);if(state.status==='SUCCEEDED'){if(paymentPollTimer)clearInterval(paymentPollTimer);paymentPollTimer=undefined;if(paymentSession.value?.reference===reference){paymentSession.value.status='Payment confirmed. Sale recorded.';window.setTimeout(()=>{if(paymentSession.value?.reference===reference)closePaymentScreen();},1800);}cart.value=[];cashReceived.value=null;await load();}else if(!['PENDING','PROCESSING'].includes(state.status)){if(paymentSession.value?.reference===reference)paymentSession.value.status=`Payment ${state.status.toLowerCase()}.`;}}catch{/* Keep the QR visible; the next poll can recover from a temporary network error. */}}
+onUnmounted(()=>{if(paymentPollTimer)clearInterval(paymentPollTimer);});
 watch(cartTotal, (total, previous) => {
     if (cashReceived.value === null || cashReceived.value === previous)
         cashReceived.value = total;
@@ -109,29 +111,20 @@ async function checkout() {
         if (paymentMethod.value !== 'PAYCHANGU') {
             await sell(cart.value, paymentMethod.value, { chargedTotal: paymentMethod.value === 'MEAL_CARD' && chargedTotal.value !== null ? chargedTotal.value : cartTotal.value, mealCardId: paymentMethod.value === 'MEAL_CARD' ? selectedMealCardId.value : undefined, creditCustomer: paymentMethod.value === 'CREDIT' ? creditCustomer.value : undefined });
         } else {
-            paymentStatus.value = 'Requesting mobile money payment…';
             const endpoint = props.section === 'restaurant'
                 ? `/restaurant/payments/initiate?business=${business.value}`
                 : '/grocery/payments/initiate?business=GROCERY';
             const initiated = await api.post<{ reference: string; checkout_url?: string; status: string }>(endpoint, {
                 amount: cartTotal.value,
                 items: cart.value,
-                phone: customerPhone.value,
-                network: paymentNetwork.value,
             }, auth.token);
-            if (initiated.checkout_url) window.open(initiated.checkout_url, '_blank', 'noopener,noreferrer');
-            paymentStatus.value = initiated.checkout_url ? 'Complete payment in the PayChangu checkout window…' : 'Payment prompt sent. Waiting for customer authorization…';
-            const started = Date.now();
-            let result: { status: string } = initiated;
-            while (['PENDING', 'PROCESSING'].includes(result.status) && Date.now() - started < 120000) {
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                result = await api.get<{ status: string }>(`${props.section === 'restaurant' ? '/restaurant' : '/grocery'}/payments/${encodeURIComponent(initiated.reference)}/status?business=${business.value}`, auth.token);
-                if (result.status === 'SUCCEEDED') break;
-            }
-            if (result.status !== 'SUCCEEDED') throw new Error(result.status === 'PENDING' || result.status === 'PROCESSING' ? 'Payment is still pending. Refresh the sale status before retrying.' : `Payment ${result.status.toLowerCase()}.`);
-            paymentStatus.value = 'Payment successful. Sale recorded.';
+            if (!initiated.checkout_url) throw new Error('PayChangu did not return a checkout link.');
+            const qrDataUrl=await QRCode.toDataURL(initiated.checkout_url,{width:520,margin:2,errorCorrectionLevel:'H'});
+            paymentSession.value={reference:initiated.reference,checkoutUrl:initiated.checkout_url,qrDataUrl,status:'Waiting for customer to scan and complete payment…'};
+            paymentPollTimer=setInterval(()=>void pollPayment(initiated.reference),3000);
+            return;
         }
-        cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; customerPhone.value = ''; paymentStatus.value = ''; cashReceived.value = null;
+        cart.value = []; selectedMealCardId.value = ''; chargedTotal.value = null; creditCustomer.value = ''; cashReceived.value = null;
         await load(); if (props.section === 'restaurant') await loadMealCards();
     });
 }
@@ -293,17 +286,7 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
             <p v-if="selectedMealCard" class="text-xs text-ink-muted">Default {{ formatMWK(selectedMealCard.defaultCharge) }} · remaining balance {{ formatMWK(selectedMealCard.balance) }}</p>
           </template>
           <template v-if="paymentMethod === 'PAYCHANGU'">
-            <label v-if="section === 'restaurant'" class="field">Mobile money network
-              <select v-model="paymentNetwork" class="input">
-                <option value="AIRTEL_MONEY">Airtel Money</option>
-                <option value="TNM_MPAMBA">TNM Mpamba</option>
-              </select>
-            </label>
-            <label class="field">Customer phone number
-              <input v-model="customerPhone" class="input" type="tel" inputmode="tel" autocomplete="off" placeholder="0999 123 456" required>
-            </label>
-            <p class="text-sm text-ink-muted" role="status">{{ section === 'restaurant' ? 'The customer will authorize the payment prompt on their phone.' : 'PayChangu checkout lets the customer choose and authorize their payment method.' }}</p>
-            <p v-if="paymentStatus" class="text-sm" role="status">{{ paymentStatus }}</p>
+            <p class="text-sm text-ink-muted">Show the customer a QR code to scan. They can choose any payment method available in PayChangu checkout.</p>
           </template>
           <div class="rounded-md bg-paper p-3">
             <p class="text-sm text-ink-muted">Amount due</p>
@@ -320,7 +303,7 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
           </template>
           <p v-if="!canSubmitSale" class="text-sm text-ink-muted" role="status">{{ saleDisabledReason }}</p>
           <button class="btn w-full" :disabled="!canSubmitSale">
-            {{ paymentMethod === 'PAYCHANGU' ? 'Request payment' : 'Record sale' }}
+            {{ paymentMethod === 'PAYCHANGU' ? 'Show payment QR' : 'Record sale' }}
           </button>
         </form>
       </div>
@@ -562,5 +545,16 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
     </template>
     <ProductEditorModal v-if="productEditorOpen" :product="editedProduct" :section="section" :business="business" @close="productEditorOpen=false" @saved="run(load)" />
     <ReasonModal v-if="stockEntryToReverse" title="Reverse stock receipt" :description="`This will remove ${stockEntryToReverse.quantity} units of ${stockEntryToReverse.name} from stock history. The reversal is recorded and cannot be deleted.`" :busy="busy" :error="error" @close="stockEntryToReverse=null" @submit="reverseStockEntry" />
+    <div v-if="paymentSession" class="fixed inset-0 z-[100] flex items-center justify-center bg-ink/70 p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="payment-qr-title">
+      <section class="w-full max-w-xl space-y-4 rounded-xl bg-surface p-5 text-center shadow-2xl sm:p-7">
+        <div class="flex justify-end"><button type="button" class="btn-secondary" @click="closePaymentScreen">Cancel / serve next customer</button></div>
+        <h2 id="payment-qr-title" class="text-2xl font-bold">Scan to pay {{ formatMWK(cartTotal) }}</h2>
+        <p class="text-sm text-ink-muted">Scan this QR code with a phone camera. Choose a payment option and complete payment in PayChangu.</p>
+        <img :src="paymentSession.qrDataUrl" alt="QR code for PayChangu checkout" class="mx-auto aspect-square w-full max-w-sm rounded bg-white p-2" />
+        <p class="font-medium" role="status">{{ paymentSession.status }}</p>
+        <p class="text-xs text-ink-muted">Sale is recorded only after PayChangu confirms payment. Closing this screen leaves the payment pending; a later successful payment will still be recorded.</p>
+        <a class="text-sm text-primary underline" :href="paymentSession.checkoutUrl" target="_blank" rel="noopener noreferrer">Open payment link on this device</a>
+      </section>
+    </div>
   </div>
 </template>

@@ -448,8 +448,9 @@ CREATE TABLE IF NOT EXISTS restaurant_payment_attempts (
   business text NOT NULL CHECK (business IN ('RESTAURANT_A','RESTAURANT_B')),
   amount numeric(12,2) NOT NULL CHECK (amount > 0),
   currency text NOT NULL,
-  network text NOT NULL CHECK (network IN ('AIRTEL_MONEY','TNM_MPAMBA')),
-  phone text NOT NULL,
+  network text CHECK (network IN ('AIRTEL_MONEY','TNM_MPAMBA')),
+  phone text,
+  checkout_url text,
   items jsonb NOT NULL,
   cashier text NOT NULL,
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','EXPIRED')),
@@ -461,6 +462,9 @@ CREATE TABLE IF NOT EXISTS restaurant_payment_attempts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE restaurant_payment_attempts ADD COLUMN IF NOT EXISTS checkout_url text;
+ALTER TABLE restaurant_payment_attempts ALTER COLUMN network DROP NOT NULL;
+ALTER TABLE restaurant_payment_attempts ALTER COLUMN phone DROP NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_restaurant_payment_provider_transaction ON restaurant_payment_attempts(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS restaurant_payment_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

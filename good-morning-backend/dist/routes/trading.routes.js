@@ -50,7 +50,6 @@ function tradingRouter(section) {
         router.post('/payments/initiate', (0, http_1.route)(async (req, res) => {
             const result = await groceryPayment_1.groceryPaymentService.initiate({
                 amount: req.body.amount,
-                phone: req.body.phone,
                 items: req.body.items,
                 requestId: req.body.requestId,
                 userId: req.user.id,
@@ -70,8 +69,6 @@ function tradingRouter(section) {
             const result = await restaurantPayment_1.restaurantPaymentService.initiate({
                 business: res.locals.business,
                 amount: req.body.amount,
-                phone: req.body.phone,
-                network: req.body.network,
                 items: req.body.items,
                 requestId: req.body.requestId,
                 cashier: req.user.name,

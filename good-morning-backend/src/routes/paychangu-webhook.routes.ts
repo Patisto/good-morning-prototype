@@ -16,7 +16,8 @@ router.post('/', async (req, res, next) => {
     const chargeId = typeof payload.charge_id === 'string' ? payload.charge_id : null;
     const eventId = chargeId;
     const auditPayload = { event_type: payload.event_type, tx_ref: payload.tx_ref, reference: payload.reference, charge_id: payload.charge_id, status: payload.status, amount: payload.amount, currency: payload.currency };
-    const grocery = chargeId ? await pool.query('SELECT id,reference FROM grocery_payment_attempts WHERE charge_id=$1 OR reference=$1', [chargeId]) : { rows: [] as any[] };
+    const paymentKey = chargeId || reference;
+    const grocery = paymentKey ? await pool.query('SELECT id,reference FROM grocery_payment_attempts WHERE charge_id=$1 OR reference=$1', [paymentKey]) : { rows: [] as any[] };
     if (grocery.rows[0]) {
       await pool.query(`INSERT INTO grocery_payment_events(grocery_payment_attempt_id,provider_event_id,event_type,payload_hash,payload,signature_valid)
         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [grocery.rows[0].id, eventId, String(payload.event_type || 'unknown'), hash, JSON.stringify(auditPayload), valid]);
@@ -25,7 +26,7 @@ router.post('/', async (req, res, next) => {
       await pool.query('UPDATE grocery_payment_events SET processed=true WHERE payload_hash=$1', [hash]);
       return res.json({ received: true, result });
     }
-    const restaurant = chargeId ? await pool.query('SELECT id,reference FROM restaurant_payment_attempts WHERE charge_id=$1 OR reference=$1', [chargeId]) : { rows: [] as any[] };
+    const restaurant = paymentKey ? await pool.query('SELECT id,reference FROM restaurant_payment_attempts WHERE charge_id=$1 OR reference=$1', [paymentKey]) : { rows: [] as any[] };
     if (restaurant.rows[0]) {
       await pool.query(`INSERT INTO restaurant_payment_events(restaurant_payment_attempt_id,provider_event_id,event_type,payload_hash,payload,signature_valid)
         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [restaurant.rows[0].id, eventId, String(payload.event_type || 'unknown'), hash, JSON.stringify(auditPayload), valid]);

@@ -2,9 +2,8 @@ import crypto from 'crypto';
 import { pool } from '../db/pool';
 import { config } from '../config';
 import { check, HttpError, today, transaction } from '../utils/http';
-import { normalizeMalawiPhone } from './phone';
 import { business, pricedLines, type SalesBusiness } from './inventory';
-import { payChangu, DirectCharge } from './paychangu';
+import { payChangu, ProviderPayment } from './paychangu';
 import { notifyOwnerOfPayment } from './paymentNotifications';
 
 const cents = (value: unknown) => {
@@ -15,17 +14,15 @@ const cents = (value: unknown) => {
 const canonicalCurrency = (value: string) => value.toUpperCase() === 'MK' ? 'MWK' : value.toUpperCase();
 
 export class RestaurantPaymentService {
-  async initiate(input: { business: unknown; amount: unknown; phone: unknown; network: unknown; items: unknown; requestId?: unknown; cashier: string }) {
-    check(config.paychanguDirectConfigured, 'PayChangu direct payments are not configured.', 503);
+  async initiate(input: { business: unknown; amount: unknown; items: unknown; requestId?: unknown; cashier: string }) {
+    check(config.paychanguConfigured, 'PayChangu checkout payments are not configured.', 503);
     const scope = business(input.business);
     check(scope !== 'GROCERY', 'Choose a restaurant business.');
-    check(input.network === 'AIRTEL_MONEY' || input.network === 'TNM_MPAMBA', 'Unsupported mobile money network.');
-    const phone = normalizeMalawiPhone(input.phone);
     const requestedAmount = cents(input.amount);
     const requestId = typeof input.requestId === 'string' && input.requestId.length <= 100 ? input.requestId : null;
     const created = await transaction(async db => {
       if (requestId) {
-        const existing = await db.query('SELECT reference,charge_id,status,amount FROM restaurant_payment_attempts WHERE request_id=$1', [requestId]);
+        const existing = await db.query('SELECT reference,charge_id,checkout_url,status,amount FROM restaurant_payment_attempts WHERE request_id=$1', [requestId]);
         if (existing.rowCount) return { existing: existing.rows[0] };
       }
       const lines = await pricedLines(db, scope, today(), input.items);
@@ -33,26 +30,24 @@ export class RestaurantPaymentService {
       check(total === requestedAmount, 'Payment amount does not match the sale total.');
       const reference = `GMR-${crypto.randomBytes(16).toString('hex')}`;
       const result = await db.query(`INSERT INTO restaurant_payment_attempts
-        (reference,charge_id,business,amount,currency,network,phone,items,cashier,status,request_id,expires_at)
-        VALUES($1,$1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9,now()+interval '30 minutes')
+        (reference,charge_id,business,amount,currency,items,cashier,status,request_id,expires_at)
+        VALUES($1,$1,$2,$3,$4,$5,$6,'PENDING',$7,now()+interval '30 minutes')
         RETURNING reference,charge_id,status,amount`, [
-        reference, scope, (requestedAmount / 100).toFixed(2), config.currency, input.network, phone,
+        reference, scope, (requestedAmount / 100).toFixed(2), config.currency,
         JSON.stringify(lines), input.cashier, requestId,
       ]);
       return { created: result.rows[0] };
     });
     if (created.existing) return created.existing;
     try {
-      const charge = await payChangu.initializeDirectCharge({
-        mobile: phone,
-        operatorRef: input.network === 'AIRTEL_MONEY'
-          ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb'
-          : '27494cb5-ba9e-437f-a114-4e7a7686bcca',
+      const checkoutUrl = await payChangu.createCheckout({
+        reference: created.created.reference,
         amount: String(created.created.amount),
-        chargeId: created.created.charge_id,
+        firstName: 'Restaurant', lastName: 'Customer',
+        title: 'Good Morning Restaurant', description: 'Restaurant POS payment',
       });
-      await pool.query('UPDATE restaurant_payment_attempts SET provider_transaction_id=$2,updated_at=now() WHERE reference=$1', [created.created.reference, charge.providerReference]);
-      return { reference: created.created.reference, charge_id: created.created.charge_id, status: charge.status, amount: Number(created.created.amount) };
+      await pool.query("UPDATE restaurant_payment_attempts SET checkout_url=$2,updated_at=now() WHERE reference=$1", [created.created.reference, checkoutUrl]);
+      return { reference: created.created.reference, checkout_url: checkoutUrl, status: 'PENDING', amount: Number(created.created.amount) };
     }
     catch (error) {
       console.error('Restaurant PayChangu initiation failed', {
@@ -69,10 +64,10 @@ export class RestaurantPaymentService {
     if (!attempt.rowCount) return 'unknown_reference';
     const row = attempt.rows[0];
     if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'EXPIRED'].includes(row.status)) return row.status.toLowerCase();
-    let verified: DirectCharge;
-    try { verified = await payChangu.verifyDirectCharge(row.charge_id); }
+    let verified: ProviderPayment;
+    try { verified = await payChangu.verify(row.reference); }
     catch { return 'verification_deferred'; }
-    const matches = verified.chargeId === row.charge_id
+    const matches = verified.txRef === row.reference
       && cents(verified.amount) === cents(row.amount)
       && canonicalCurrency(verified.currency) === canonicalCurrency(row.currency);
     const result = await transaction(async db => {
@@ -98,7 +93,7 @@ export class RestaurantPaymentService {
       const sale = await db.query(`INSERT INTO sales(business,date,time,total,payment_method,cashier,inventory_tracked)
         VALUES($1,CURRENT_DATE,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$2,'PAYCHANGU',$3,true) RETURNING id`, [row.business, row.amount, row.cashier]);
       for (const line of lines) await db.query('INSERT INTO sale_items(sale_id,item_id,name,quantity,unit_price) VALUES($1,$2,$3,$4,$5)', [sale.rows[0].id, line.itemId, line.name, line.quantity, line.unitPrice]);
-      await db.query("UPDATE restaurant_payment_attempts SET status='SUCCEEDED',provider_transaction_id=COALESCE($2,provider_transaction_id),sale_id=$3,paid_at=now(),updated_at=now() WHERE id=$1", [row.id, verified.providerReference, sale.rows[0].id]);
+      await db.query("UPDATE restaurant_payment_attempts SET status='SUCCEEDED',provider_transaction_id=COALESCE($2,provider_transaction_id),sale_id=$3,paid_at=now(),updated_at=now() WHERE id=$1", [row.id, verified.reference, sale.rows[0].id]);
       return 'succeeded';
     });
     if (result === 'succeeded') {
