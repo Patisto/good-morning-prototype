@@ -242,23 +242,24 @@ router.get('/payment-history', (0, http_1.route)(async (req, res) => {
     const result = await pool_1.pool.query(`SELECT r.id,r.payment_date,r.payment_method,r.amount,r.reversed_at,r.reversal_reason,
       c.id AS charge_id,c.month,t.id AS tenant_id,t.first_name,t.last_name,t.phone,u.name AS recorded_by_name
       FROM rent_receipts r JOIN rent_charges c ON c.id=r.charge_id JOIN tenants t ON t.id=c.tenant_id
-      LEFT JOIN users u ON u.id=r.recorded_by WHERE ($1::text IS NULL OR to_char(r.payment_date,'YYYY-MM')=$1)
+      LEFT JOIN users u ON u.id=r.recorded_by WHERE ($1::text IS NULL OR c.month=$1)
       ORDER BY r.payment_date DESC,r.created_at DESC`, [period]);
     res.json(result.rows);
 }));
 router.post('/charges/:id/receipts/:receiptId/reverse', manage, (0, http_1.route)(async (req, res) => {
     const reason = (0, http_1.text)(req.body.reason, 'Reversal reason');
     const receiptId = await (0, http_1.transaction)(async (db) => {
-        const receipt = await db.query(`SELECT p.id,p.payment_method,p.reversed_at
+        const receipt = await db.query(`SELECT p.id,p.payment_method,p.payment_attempt_id,p.reversed_at
             FROM rent_receipts p JOIN rent_charges c ON c.id=p.charge_id
             WHERE p.id=$1 AND c.id=$2 FOR UPDATE OF c,p`, [req.params.receiptId, req.params.id]);
         (0, http_1.check)(receipt.rowCount, 'Payment receipt not found.', 404);
-        (0, http_1.check)(receipt.rows[0].payment_method !== 'PAYCHANGU', 'Online payments cannot be reversed here. Reconcile this payment with the payment provider.');
         if (receipt.rows[0].reversed_at)
             return receipt.rows[0].id;
         const result = await db.query(`UPDATE rent_receipts SET reversed_at=now(),reversed_by=$2,reversal_reason=$3
             WHERE id=$1 AND reversed_at IS NULL RETURNING id`, [req.params.receiptId, req.user.id, reason]);
         (0, http_1.check)(result.rowCount, 'This payment has already been reversed.', 409);
+        if (receipt.rows[0].payment_attempt_id)
+            await db.query("UPDATE payment_attempts SET status='REVERSED',failure_reason=$2,updated_at=now() WHERE id=$1 AND status='SUCCEEDED'", [receipt.rows[0].payment_attempt_id, `Manually reversed: ${reason}`]);
         return result.rows[0].id;
     });
     res.json({ id: receiptId });

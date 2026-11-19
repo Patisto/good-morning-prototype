@@ -378,6 +378,8 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   initiated_ip inet, paid_at timestamptz, expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE payment_attempts DROP CONSTRAINT IF EXISTS payment_attempts_status_check;
+ALTER TABLE payment_attempts ADD CONSTRAINT payment_attempts_status_check CHECK (status IN ('PENDING','PROCESSING','SUCCEEDED','REVERSED','FAILED','CANCELLED','EXPIRED'));
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_attempts_provider_transaction ON payment_attempts(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_status_created ON payment_attempts(status,created_at);
 CREATE TABLE IF NOT EXISTS payment_events (
