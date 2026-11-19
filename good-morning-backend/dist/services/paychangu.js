@@ -74,7 +74,8 @@ class PayChanguService {
         });
         const data = body?.data;
         if (!['success', 'successful'].includes(String(body?.status).toLowerCase()) || !data?.charge_id) {
-            throw new Error('PayChangu did not accept the mobile money charge.');
+            const reason = typeof body?.message === 'string' ? body.message.slice(0, 240) : String(body?.status || 'unspecified provider response');
+            throw new Error(`PayChangu did not accept the mobile money charge: ${reason}`);
         }
         return {
             chargeId: String(data.charge_id),

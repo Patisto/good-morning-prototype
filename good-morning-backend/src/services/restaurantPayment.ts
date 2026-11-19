@@ -54,7 +54,11 @@ export class RestaurantPaymentService {
       await pool.query('UPDATE restaurant_payment_attempts SET provider_transaction_id=$2,updated_at=now() WHERE reference=$1', [created.created.reference, charge.providerReference]);
       return { reference: created.created.reference, charge_id: created.created.charge_id, status: charge.status, amount: Number(created.created.amount) };
     }
-    catch {
+    catch (error) {
+      console.error('Restaurant PayChangu initiation failed', {
+        reference: created.created.reference,
+        reason: error instanceof Error ? error.message : String(error),
+      });
       await pool.query("UPDATE restaurant_payment_attempts SET status='FAILED',failure_reason='PayChangu charge could not be initiated',updated_at=now() WHERE reference=$1 AND status='PENDING'", [created.created.reference]);
       throw new HttpError(503, 'Payment service is temporarily unavailable.');
     }
