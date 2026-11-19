@@ -41,7 +41,7 @@ const configuredProducts = computed(() => products.value
     .filter(product => (!configurationCategory.value || product.category === configurationCategory.value)
         && `${product.name} ${product.category} ${product.unit}`.toLowerCase().includes(configurationSearch.value.trim().toLowerCase()))
     .sort((a, b) => {
-        const left = a[configurationSort], right = b[configurationSort];
+        const left = a[configurationSort.value], right = b[configurationSort.value];
         const comparison = typeof left === 'number' && typeof right === 'number'
             ? left - right
             : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });

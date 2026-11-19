@@ -1,1 +1,0 @@
-import{_ as t}from"./TradingWorkspace.vue_vue_type_script_setup_true_lang-B0XAb9NC.js";import{d as e,A as o,o as r}from"./index-DCZ3tHna.js";import"./FormModal.vue_vue_type_script_setup_true_lang-oFyeU8mk.js";import"./index-CQ8gMziz.js";const i=e({__name:"RestaurantView",setup(a){return(n,s)=>(r(),o(t,{section:"restaurant"}))}});export{i as default};

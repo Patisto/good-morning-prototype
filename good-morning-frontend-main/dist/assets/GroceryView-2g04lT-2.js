@@ -1,1 +1,0 @@
-import{O as e,w as t,y as n}from"./index-YUgLjXU2.js";import{t as r}from"./TradingWorkspace-CY-AYWKL.js";var i=t({__name:`GroceryView`,setup(t){return(t,i)=>(e(),n(r,{section:`grocery`}))}});export{i as default};
