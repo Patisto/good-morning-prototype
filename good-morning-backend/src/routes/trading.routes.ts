@@ -39,9 +39,21 @@ export function tradingRouter(section: 'restaurant' | 'grocery') {
     router.get('/payment-history', route(async (req,res)=>{
         const period=req.query.month ? month(req.query.month) : null;
         const result=await pool.query(`SELECT s.id,s.business,s.date,s.time,s.total,s.payment_method,s.cashier,s.credit_customer,s.created_at,
+          'COMPLETED'::text AS payment_status,NULL::text AS failure_reason,
           COALESCE(json_agg(json_build_object('name',i.name,'quantity',i.quantity,'unitPrice',i.unit_price)) FILTER(WHERE i.id IS NOT NULL),'[]') AS items
-          FROM sales s LEFT JOIN sale_items i ON i.sale_id=s.id WHERE s.business=$1 AND ($2::text IS NULL OR to_char(s.date,'YYYY-MM')=$2)
-          GROUP BY s.id ORDER BY s.date DESC,s.time DESC,s.created_at DESC`,[res.locals.business,period]);
+          FROM sales s LEFT JOIN sale_items i ON i.sale_id=s.id WHERE s.business=$1 AND s.payment_method<>'PAYCHANGU'
+            AND ($2::text IS NULL OR to_char(s.date,'YYYY-MM')=$2)
+          GROUP BY s.id
+          UNION ALL
+          SELECT COALESCE(a.sale_id,a.id) AS id,a.business,
+            COALESCE((a.paid_at AT TIME ZONE 'Africa/Blantyre')::date,(a.created_at AT TIME ZONE 'Africa/Blantyre')::date) AS date,
+            COALESCE(to_char(a.paid_at AT TIME ZONE 'Africa/Blantyre','HH24:MI'),to_char(a.created_at AT TIME ZONE 'Africa/Blantyre','HH24:MI')) AS time,
+            a.amount AS total,'PAYCHANGU'::text AS payment_method,a.cashier,NULL::text AS credit_customer,a.created_at,
+            a.status AS payment_status,a.failure_reason,
+            COALESCE((SELECT json_agg(json_build_object('name',si.name,'quantity',si.quantity,'unitPrice',si.unit_price)) FROM sale_items si WHERE si.sale_id=a.sale_id),a.items::json) AS items
+          FROM ${section === 'grocery' ? 'grocery_payment_attempts' : 'restaurant_payment_attempts'} a
+          WHERE a.business=$1 AND ($2::text IS NULL OR to_char(COALESCE((a.paid_at AT TIME ZONE 'Africa/Blantyre')::date,(a.created_at AT TIME ZONE 'Africa/Blantyre')::date),'YYYY-MM')=$2)
+          ORDER BY date DESC,time DESC,created_at DESC`,[res.locals.business,period]);
         res.json(result.rows);
     }));
     router.get('/status', route(async (req, res) => {

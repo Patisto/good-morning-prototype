@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { pool } from '../db/pool';
 import { config } from '../config';
-import { check, HttpError, transaction } from '../utils/http';
+import { check, HttpError, today, transaction } from '../utils/http';
 import { payChangu, DirectCharge, ProviderPayment } from './paychangu';
 
 type SaleLine = { itemId: string; name: string; quantity: number; unitPrice: number };
@@ -118,7 +118,7 @@ export class GroceryPaymentService {
         const available = await db.query(`SELECT COALESCE(SUM(e.quantity),0)-COALESCE((SELECT SUM(si.quantity) FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE si.item_id=$1 AND s.inventory_tracked=true AND s.status='COMPLETED'),0) AS available FROM stock_entries e WHERE e.product_id=$1`, [itemId]);
         check(Number(available.rows[0].available) >= quantity, 'Stock changed while payment was pending.');
       }
-      const sale = await db.query(`INSERT INTO sales(business,date,time,total,payment_method,cashier,inventory_tracked) VALUES('GROCERY',CURRENT_DATE,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$1,'PAYCHANGU',$2,true) RETURNING id`, [row.amount, row.cashier]);
+      const sale = await db.query(`INSERT INTO sales(business,date,time,total,payment_method,cashier,inventory_tracked) VALUES('GROCERY',$1,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$2,'PAYCHANGU',$3,true) RETURNING id`, [today(), row.amount, row.cashier]);
       for (const line of lines) await db.query('INSERT INTO sale_items(sale_id,item_id,name,quantity,unit_price) VALUES($1,$2,$3,$4,$5)', [sale.rows[0].id, line.itemId, line.name, line.quantity, line.unitPrice]);
       await db.query("UPDATE grocery_payment_attempts SET status='SUCCEEDED',provider_transaction_id=COALESCE($2,provider_transaction_id),sale_id=$3,paid_at=now(),updated_at=now() WHERE id=$1", [row.id, providerReference, sale.rows[0].id]);
       return 'succeeded';
