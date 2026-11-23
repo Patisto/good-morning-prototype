@@ -22,10 +22,10 @@ Create a Render Blueprint using `render-staging.yaml` (keep the existing `render
 
 - `DATABASE_URL`: staging Neon connection string.
 - `FRONTEND_URL`: the staging Vercel origin, for example `https://good-morning-staging.vercel.app`.
-- `CORS_ALLOWED_ORIGINS`: that same exact staging Vercel origin, without a trailing slash or path.
+- `CORS_ALLOWED_ORIGINS`: the staging frontend and staging payment portal Vercel origins, comma-separated, without trailing slashes or paths.
 - `PAYCHANGU_SECRET_KEY`, `PAYCHANGU_WEBHOOK_SECRET`: PayChangu **test** credentials only.
 - `PAYCHANGU_CALLBACK_URL`: `https://<render-service-host>/api/webhooks/paychangu`; configure this same endpoint in the PayChangu test dashboard.
-- `PAYCHANGU_RETURN_URL`: the staging Vercel origin plus `/`.
+- `PAYCHANGU_RETURN_URL`: the staging payment portal's Vercel URL, ending in `/` (for example `https://good-morning-payment-staging.vercel.app/`).
 
 Render generates `JWT_SECRET` and `LOOKUP_TOKEN_SECRET`. `PAYCHANGU_ENV` is set to `test`. Add SMTP settings only if staging email delivery is needed; use a test mailbox/provider and do not copy production SMTP credentials. Do not configure `SEED_SUPER_*` on a database containing real users. Create a staging manager account through the approved initial account setup for that isolated database.
 
@@ -34,6 +34,12 @@ Render generates `JWT_SECRET` and `LOOKUP_TOKEN_SECRET`. `PAYCHANGU_ENV` is set 
 Create a **separate** Vercel project connected to this repository. Set its root directory to `good-morning-frontend-main`, framework preset to Vite, build command to `npm run build`, and output directory to `dist`. Set the project's Production Branch to `staging`. This keeps the existing production Vercel project and its domain settings separate.
 
 Set `VITE_API_URL` in the staging Vercel project to `https://<render-service-host>/api`. Set it for the Preview and Production environments used by the staging project. After the first Render deploy, add the exact Vercel staging origin to both Render `FRONTEND_URL` and `CORS_ALLOWED_ORIGINS`, then redeploy the Render service.
+
+## Vercel staging payment portal
+
+Create a second, separate Vercel project from this repository for the static rent payment page. Set its root directory to `payment-portal`, framework preset to **Other**, build command to `npm run build`, and output directory to `dist`. Set the project's Production Branch to `staging` and add `PAYMENT_API_BASE_URL=https://<render-service-host>/api` to its environment. This project builds the same static page as production but points it at the isolated Render staging API. Use its assigned Vercel URL for Render's `PAYCHANGU_RETURN_URL`.
+
+Set `VITE_PAYMENT_URL` in the staging frontend Vercel project to the staging payment portal's URL (including the trailing slash). On production, the Hostel Links page continues to default to `https://pay.goodmorningmw.online/`; the staging frontend uses its explicit `VITE_PAYMENT_URL` value.
 
 ## What runs on each branch
 

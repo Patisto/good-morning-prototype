@@ -22,7 +22,7 @@ export class LookupService {
       FROM tenants t LEFT JOIN rooms r ON r.id=t.room_id LEFT JOIN housing_units u ON u.id=r.housing_unit_id
       WHERE t.phone_normalized=$1 AND t.deleted_at IS NULL AND t.checkout_date IS NULL`, [phone]);
     if (matches.rowCount !== 1) return null;
-    const t = matches.rows[0], period = new Date().toISOString().slice(0, 7);
+    const t = matches.rows[0], period = today().slice(0, 7);
     await transaction(async db => ensureRentCharges(db, t.id, period));
     const account = await rentAccount(pool, t.id, period);
     const balance = outstanding(account);
