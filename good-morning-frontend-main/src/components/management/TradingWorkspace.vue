@@ -21,6 +21,8 @@ const cart = ref<{
     itemId: string;
     quantity: number;
 }[]>([]);
+const cartForm = ref<HTMLFormElement | null>(null);
+const cartItemCount = computed(() => cart.value.length);
 const productEditorOpen = ref(false);
 const editedProduct = ref<Product | undefined>();
 const stock = ref({ productId: '', quantity: 0, notes: '' });
@@ -105,6 +107,9 @@ function add(product: Product) {
     }
     else
         cart.value.push({ itemId: product.id, quantity: Math.min(1, product.currentStock) });
+}
+function goToCart() {
+    cartForm.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 watch(selectedMealCard, card => { if (card) chargedTotal.value = card.defaultCharge; });
 async function checkout() {
@@ -254,7 +259,7 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
             <router-link class="btn-tertiary mt-3" :to="{ path: route.path, query: { ...route.query, tab: 'stock' } }">Open Stock</router-link>
           </div>
         </section>
-        <form class="panel space-y-3 xl:sticky xl:top-4" @submit.prevent="checkout">
+        <form ref="cartForm" class="panel scroll-mt-4 space-y-3 xl:sticky xl:top-4" @submit.prevent="checkout">
           <h3 class="font-semibold">
             Current sale
           </h3>
@@ -361,6 +366,22 @@ onUnmounted(() => window.removeEventListener('keydown', searchShortcut));
         </p>
         </div>
       </section>
+      <button
+        v-if="canSell && cartItemCount && !paymentSession"
+        type="button"
+        class="fixed bottom-5 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-lg ring-2 ring-white transition hover:bg-primary-dark focus:outline-none focus:ring-4 focus:ring-primary/30 xl:hidden"
+        :aria-label="`Go to cart, ${cartItemCount} ${cartItemCount === 1 ? 'product' : 'products'} selected`"
+        title="Go to cart"
+        @click="goToCart"
+      >
+        <svg aria-hidden="true" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3h2l2.2 11.1a2 2 0 0 0 2 1.6h8.9a2 2 0 0 0 2-1.6L21 8H6" />
+          <circle cx="10" cy="20" r="1" />
+          <circle cx="18" cy="20" r="1" />
+        </svg>
+        <span aria-hidden="true" class="absolute -right-1 -top-1 flex min-h-6 min-w-6 items-center justify-center rounded-full bg-white px-1 text-xs font-bold leading-none text-primary shadow">{{ cartItemCount }}</span>
+        <span class="sr-only">{{ cartItemCount }} {{ cartItemCount === 1 ? 'product' : 'products' }} selected</span>
+      </button>
     </template>
     <template v-else-if="tab==='payment-history'">
       <TradingPaymentHistory :section="section" :business="business" />

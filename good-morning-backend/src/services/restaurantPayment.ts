@@ -91,7 +91,7 @@ export class RestaurantPaymentService {
       const currentTotal = Math.round(lines.reduce((sum, line) => sum + line.quantity * line.unitPrice * 100, 0));
       check(currentTotal === cents(row.amount), 'Sale changed while payment was pending.');
       const sale = await db.query(`INSERT INTO sales(business,date,time,total,payment_method,cashier,inventory_tracked)
-        VALUES($1,CURRENT_DATE,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$2,'PAYCHANGU',$3,true) RETURNING id`, [row.business, row.amount, row.cashier]);
+        VALUES($1,$2,to_char(now() AT TIME ZONE 'Africa/Blantyre','HH24:MI'),$3,'PAYCHANGU',$4,true) RETURNING id`, [row.business,today(),row.amount,row.cashier]);
       for (const line of lines) await db.query('INSERT INTO sale_items(sale_id,item_id,name,quantity,unit_price) VALUES($1,$2,$3,$4,$5)', [sale.rows[0].id, line.itemId, line.name, line.quantity, line.unitPrice]);
       await db.query("UPDATE restaurant_payment_attempts SET status='SUCCEEDED',provider_transaction_id=COALESCE($2,provider_transaction_id),sale_id=$3,paid_at=now(),updated_at=now() WHERE id=$1", [row.id, verified.reference, sale.rows[0].id]);
       return 'succeeded';

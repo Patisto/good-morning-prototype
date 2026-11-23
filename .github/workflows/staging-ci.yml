@@ -1,0 +1,51 @@
+name: Staging validation
+
+on:
+  push:
+    branches: [staging]
+    paths:
+      - 'good-morning-backend/**'
+      - 'good-morning-frontend-main/**'
+      - 'render-staging.yaml'
+      - '.github/workflows/staging-ci.yml'
+  pull_request:
+    branches: [staging, main]
+    paths:
+      - 'good-morning-backend/**'
+      - 'good-morning-frontend-main/**'
+      - 'render-staging.yaml'
+      - '.github/workflows/staging-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: good-morning-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: good-morning-backend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: good-morning-frontend-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: good-morning-frontend-main/package-lock.json
+      - run: npm ci
+      - run: npm run build
