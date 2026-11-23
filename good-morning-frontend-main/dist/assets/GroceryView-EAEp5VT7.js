@@ -1,0 +1,1 @@
+import{_ as o}from"./TradingWorkspace.vue_vue_type_script_setup_true_lang-CSkdgPL9.js";import{d as r,D as e,o as t}from"./index-Bb5LNnt-.js";import"./FormModal.vue_vue_type_script_setup_true_lang-B2DMDRMC.js";import"./index-YWQfxXs7.js";import"./browser-BJ9igRQF.js";const f=r({__name:"GroceryView",setup(c){return(a,m)=>(t(),e(o,{section:"grocery"}))}});export{f as default};

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useRoute } from 'vue-router';
 import RentPayments from '@/components/management/RentPayments.vue';
 import HostelPaymentHistory from '@/components/management/HostelPaymentHistory.vue';
+import HostelShareLinks from '@/components/management/HostelShareLinks.vue';
 import RoomConfiguration from '@/components/management/RoomConfiguration.vue';
 import FormModal from '@/components/ui/FormModal.vue';
 import { useTask } from '@/composables/useTask';
@@ -32,6 +33,7 @@ const savingError = ref('');
 type TenantApplication={id:string;applicant:Record<string,unknown>;preferredRoomId:string|null;status:'PENDING'|'APPROVED'|'DENIED';agreementAcceptedAt:string;createdAt:string};
 const applications=ref<TenantApplication[]>([]), applicationRooms=ref<Record<string,string>>({});
 const publicRegistrationUrl=`${window.location.origin}/hostel/register`;
+const publicRentPaymentUrl=(import.meta.env.VITE_PAYMENT_URL || 'https://pay.goodmorningmw.online/').replace(/\/+$/,'')+'/';
 const copiedRegistrationLink=ref(false), showAllApplications=ref(false);
 const pendingApplications=computed(()=>applications.value.filter(a=>a.status==='PENDING'));
 const visibleApplications=computed(()=>showAllApplications.value?pendingApplications.value:pendingApplications.value.slice(0,5));
@@ -220,6 +222,7 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
     </div>
     <RentPayments v-else-if="tab === 'payments'" />
     <HostelPaymentHistory v-else-if="tab === 'payment-history'" />
+    <HostelShareLinks v-else-if="tab === 'links'" :registration-url="publicRegistrationUrl" :payment-url="publicRentPaymentUrl" />
     <RoomConfiguration v-else-if="tab === 'configuration' && canManage" />
 
   </div>
