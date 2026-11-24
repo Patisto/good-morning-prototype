@@ -18,6 +18,8 @@ router.get('/', route(async (_req, res) => {
 router.post('/', route(async (req,res)=>{
   const b=req.body, phone=text(b.phone,'Phone'); normalizeMalawiPhone(phone);
   check(b.agreed===true,'You must agree to the accommodation terms.');
+  const agreementSignature=b.agreementSignature;
+  check(typeof agreementSignature==='string'&&agreementSignature.length<=80000&&/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(agreementSignature),'Please provide a valid signature for the accommodation terms.');
   const applicant:Record<string,unknown>={};
   for(const key of ['firstName','middleName','lastName','gender','dateOfBirth','phone','altPhone','email','homeDistrict','homeAddress','emergencyContactName','emergencyContactPhone','emergencyContactRelationship','institution','programme','faculty','department','yearOfStudy','regNumber','academicYear']){
     const value=b[key];
@@ -29,7 +31,7 @@ router.post('/', route(async (req,res)=>{
   if(applicant.yearOfStudy!==undefined&&applicant.yearOfStudy!==null) check(Number(applicant.yearOfStudy)>0,'Invalid year of study.');
   const preferred=typeof b.preferredRoomId==='string'?b.preferredRoomId:'';
   if(preferred) { const room=await pool.query('SELECT id FROM rooms WHERE id=$1 AND archived_at IS NULL',[preferred]); check(room.rowCount,'Choose a valid preferred room.'); }
-  const result=await pool.query('INSERT INTO tenant_applications(applicant,preferred_room_id,agreement_accepted_at) VALUES($1::jsonb,NULLIF($2,\'\'),now()) RETURNING id',[JSON.stringify(applicant),preferred]);
+  const result=await pool.query('INSERT INTO tenant_applications(applicant,preferred_room_id,agreement_accepted_at,agreement_signature) VALUES($1::jsonb,NULLIF($2,\'\'),now(),$3) RETURNING id',[JSON.stringify(applicant),preferred,agreementSignature]);
   res.json({ok:true,id:result.rows[0].id});
 }));
 export default router;

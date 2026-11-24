@@ -1,11 +1,62 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { nextTick, onMounted, reactive, ref } from 'vue';
 import { api, fromApi } from '@/lib/api';
 const terms = ref<string[]>([]), rooms = ref<{id:string;label:string;identifier:string;housingUnit:string;monthlyPrice:number}[]>([]);
-const error=ref(''), done=ref(false), loading=ref(true), agreed=ref(false);
-const fields: {k:string;l:string;t?:string;r?:boolean;p?:string}[] = [{k:'firstName',l:'First name',r:true,p:'e.g. Thoko'},{k:'middleName',l:'Middle name',p:'e.g. Grace'},{k:'lastName',l:'Last name',r:true,p:'e.g. Banda'},{k:'phone',l:'Phone number',r:true,t:'tel',p:'e.g. 0991 234 567 or +265 991 234 567'},{k:'gender',l:'Gender',p:'e.g. Female'},{k:'dateOfBirth',l:'Date of birth',t:'date'},{k:'altPhone',l:'Alternative phone',t:'tel',p:'e.g. 0888 123 456'},{k:'email',l:'Email',t:'email',p:'e.g. thoko@example.com'},{k:'homeDistrict',l:'Home district',p:'e.g. Lilongwe'},{k:'homeAddress',l:'Home address',p:'e.g. Area 25, Lilongwe'},{k:'institution',l:'Institution',p:'e.g. University of Malawi'},{k:'programme',l:'Programme',p:'e.g. Bachelor of Science'},{k:'faculty',l:'Faculty',p:'e.g. Science'},{k:'department',l:'Department',p:'e.g. Computer Science'},{k:'yearOfStudy',l:'Year of study',t:'number',p:'e.g. 2'},{k:'regNumber',l:'Registration number',p:'e.g. BSC/2025/014'},{k:'academicYear',l:'Academic year',p:'e.g. 2026/2027'},{k:'emergencyContactName',l:'Emergency contact name',p:'e.g. Grace Banda'},{k:'emergencyContactPhone',l:'Emergency contact phone',t:'tel',p:'e.g. 0999 123 456'},{k:'emergencyContactRelationship',l:'Relationship',p:'e.g. Parent'}];
+const error=ref(''), loadError=ref(''), done=ref(false), loading=ref(true), submitting=ref(false), signatureCanvas=ref<HTMLCanvasElement|null>(null), agreementSignature=ref('');
+const fields: {k:string;l:string;t?:string;r?:boolean;p?:string}[] = [{k:'firstName',l:'First name',r:true,p:'e.g. Thoko'},{k:'middleName',l:'Middle name',p:'e.g. Grace'},{k:'lastName',l:'Last name',r:true,p:'e.g. Banda'},{k:'phone',l:'Phone number',r:true,t:'tel',p:'e.g. 0991 234 567 or +265 991 234 567'},{k:'gender',l:'Gender'},{k:'dateOfBirth',l:'Date of birth',t:'date'},{k:'altPhone',l:'Alternative phone',t:'tel',p:'e.g. 0888 123 456'},{k:'email',l:'Email',t:'email',p:'e.g. thoko@example.com'},{k:'homeDistrict',l:'Home district',p:'e.g. Lilongwe'},{k:'homeAddress',l:'Home address',p:'e.g. Area 25, Lilongwe'},{k:'institution',l:'Institution',p:'e.g. University of Malawi'},{k:'programme',l:'Programme',p:'e.g. Bachelor of Science'},{k:'faculty',l:'Faculty',p:'e.g. Science'},{k:'department',l:'Department',p:'e.g. Computer Science'},{k:'yearOfStudy',l:'Year of study',t:'number',p:'e.g. 2'},{k:'regNumber',l:'Registration number',p:'e.g. BSC/2025/014'},{k:'academicYear',l:'Academic year',p:'e.g. 2026/2027'},{k:'emergencyContactName',l:'Emergency contact name',p:'e.g. Grace Banda'},{k:'emergencyContactPhone',l:'Emergency contact phone',t:'tel',p:'e.g. 0999 123 456'},{k:'emergencyContactRelationship',l:'Relationship',p:'e.g. Parent'}];
 const form=reactive<Record<string, any>>({firstName:'',middleName:'',lastName:'',phone:'',gender:'',dateOfBirth:'',altPhone:'',email:'',homeDistrict:'',homeAddress:'',emergencyContactName:'',emergencyContactPhone:'',emergencyContactRelationship:'',institution:'',programme:'',faculty:'',department:'',yearOfStudy:'',regNumber:'',academicYear:'',preferredRoomId:''});
-onMounted(async()=>{try{const data=fromApi<{terms:string[];rooms:typeof rooms.value}>(await api.get('/public/hostel-registration'));terms.value=data.terms;rooms.value=data.rooms;}catch(e){error.value=(e as Error).message;}finally{loading.value=false;}});
-async function submit(){error.value='';try{await api.post('/public/hostel-registration',{...form,yearOfStudy:form.yearOfStudy?Number(form.yearOfStudy):undefined,agreed});done.value=true;}catch(e){error.value=(e as Error).message;}}
+function clearSignature(){const canvas=signatureCanvas.value,context=canvas?.getContext('2d');if(!canvas||!context)return;context.clearRect(0,0,canvas.width,canvas.height);context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);agreementSignature.value='';}
+function signaturePoint(event:PointerEvent){const canvas=signatureCanvas.value!,rect=canvas.getBoundingClientRect();return{x:(event.clientX-rect.left)*canvas.width/rect.width,y:(event.clientY-rect.top)*canvas.height/rect.height};}
+let drawing=false, signatureMoved=false, lastPoint={x:0,y:0};
+function startSignature(event:PointerEvent){const canvas=signatureCanvas.value;if(!canvas)return;event.preventDefault();canvas.setPointerCapture(event.pointerId);const context=canvas.getContext('2d');if(!context)return;drawing=true;signatureMoved=false;lastPoint=signaturePoint(event);context.beginPath();context.moveTo(lastPoint.x,lastPoint.y);}
+function drawSignature(event:PointerEvent){if(!drawing)return;const canvas=signatureCanvas.value,context=canvas?.getContext('2d');if(!canvas||!context)return;event.preventDefault();const point=signaturePoint(event);if(Math.hypot(point.x-lastPoint.x,point.y-lastPoint.y)>1){signatureMoved=true;context.strokeStyle='#172b26';context.lineWidth=4;context.lineCap='round';context.lineJoin='round';context.lineTo(point.x,point.y);context.stroke();lastPoint=point;}}
+function endSignature(event:PointerEvent){if(!drawing)return;drawing=false;if(signatureMoved&&signatureCanvas.value)agreementSignature.value=signatureCanvas.value.toDataURL('image/png');else agreementSignature.value='';if(signatureCanvas.value?.hasPointerCapture(event.pointerId))signatureCanvas.value.releasePointerCapture(event.pointerId);}
+onMounted(async()=>{try{const data=fromApi<{terms:string[];rooms:typeof rooms.value}>(await api.get('/public/hostel-registration'));terms.value=data.terms;rooms.value=data.rooms;}catch(e){loadError.value=(e as Error).message;}finally{loading.value=false;await nextTick();clearSignature();}});
+async function submit(){if(submitting.value||done.value)return;error.value='';if(!agreementSignature.value){error.value='Please sign the accommodation terms before submitting.';return;}submitting.value=true;try{await api.post('/public/hostel-registration',{...form,yearOfStudy:form.yearOfStudy?Number(form.yearOfStudy):undefined,agreed:true,agreementSignature:agreementSignature.value});done.value=true;}catch(e){error.value=(e as Error).message;}finally{submitting.value=false;}}
 </script>
-<template><main class="mx-auto max-w-3xl space-y-5 p-5"><header><h1 class="text-2xl font-semibold">Hostel registration</h1><p class="text-ink-muted">Complete your details. Hostel management will review your application and allocate a room.</p><p class="mt-2 text-sm text-ink-muted"><span class="font-semibold text-red-600">*</span> Required field</p></header><p v-if="loading">Loading registration…</p><section v-else-if="done" class="panel">Application submitted. Hostel management will contact you after reviewing your details and room allocation.</section><form v-else-if="!error" class="panel space-y-4" @submit.prevent="submit"><div class="grid gap-3 sm:grid-cols-2"><label v-for="field in fields" :key="field.k" class="field"><span>{{field.l}}<span v-if="field.r" class="ml-1 font-semibold text-red-600" aria-hidden="true">*</span></span><input v-model="form[field.k]" class="input" :type="field.t||'text'" :placeholder="field.p" :required="field.r" /></label><label class="field sm:col-span-2">Preferred room (optional)<select v-model="form.preferredRoomId" class="input"><option value="">No preference</option><option v-for="room in rooms" :key="room.id" :value="room.id">{{room.housingUnit}} · {{room.label||room.identifier}} · MWK {{room.monthlyPrice.toLocaleString()}} / month</option></select><small>Final room and rent are set by hostel management.</small></label></div><section class="rounded border border-line p-4"><h2 class="font-semibold">Accommodation terms <span class="text-red-600" aria-hidden="true">*</span></h2><ol class="list-decimal space-y-2 pl-5"><li v-for="term in terms" :key="term">{{term}}</li></ol><label class="mt-4 flex gap-2"><input v-model="agreed" type="checkbox" required /><span><span class="font-semibold text-red-600" aria-hidden="true">*</span> I have read and agree to these terms. I understand my application requires management approval.</span></label></section><p v-if="error" class="error">{{error}}</p><button class="btn" :disabled="!agreed">Submit registration</button></form><p v-if="error && !loading" class="error">{{error}}</p></main></template>
+<template>
+  <main class="mx-auto max-w-3xl space-y-5 p-5">
+    <header>
+      <h1 class="text-2xl font-semibold">Hostel registration</h1>
+      <p class="text-ink-muted">Complete your details. Hostel management will review your application and allocate a room.</p>
+      <p class="mt-2 text-sm text-ink-muted"><span class="font-semibold text-red-600">*</span> Required field</p>
+    </header>
+    <p v-if="loading">Loading registration…</p>
+    <p v-else-if="loadError" class="error">{{ loadError }}</p>
+    <section v-else-if="done" class="panel">Application submitted. Hostel management will contact you after reviewing your details and room allocation.</section>
+    <form v-else class="panel space-y-4" @submit.prevent="submit">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label v-for="field in fields" :key="field.k" class="field">
+          <span>{{ field.l }}<span v-if="field.r" class="ml-1 font-semibold text-red-600" aria-hidden="true">*</span></span>
+          <select v-if="field.k==='gender'" v-model="form[field.k]" class="input">
+            <option value="">Select gender (optional)</option><option>Female</option><option>Male</option>
+          </select>
+          <input v-else v-model="form[field.k]" class="input" :type="field.t||'text'" :placeholder="field.p" :required="field.r" />
+        </label>
+        <label class="field sm:col-span-2">Preferred room (optional)
+          <select v-model="form.preferredRoomId" class="input">
+            <option value="">No preference</option>
+            <option v-for="room in rooms" :key="room.id" :value="room.id">{{ room.housingUnit }} · {{ room.label||room.identifier }} · MWK {{ room.monthlyPrice.toLocaleString() }} / month</option>
+          </select>
+          <small>Final room and rent are set by hostel management.</small>
+        </label>
+      </div>
+      <section class="rounded border border-line p-4">
+        <h2 class="font-semibold">Accommodation terms <span class="text-red-600" aria-hidden="true">*</span></h2>
+        <ol class="list-decimal space-y-2 pl-5"><li v-for="term in terms" :key="term">{{ term }}</li></ol>
+        <div class="mt-4 space-y-2">
+          <p class="text-sm">Sign below to confirm that you have read and agree to these terms. Your signature is required.</p>
+          <canvas ref="signatureCanvas" width="900" height="180" class="h-36 w-full touch-none rounded border border-line bg-white" aria-label="Draw your signature here" @pointerdown="startSignature" @pointermove="drawSignature" @pointerup="endSignature" @pointercancel="endSignature"></canvas>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="text-sm" :class="agreementSignature ? 'text-primary-dark' : 'text-ink-muted'" role="status">{{ agreementSignature ? 'Signature captured' : 'Use your finger or mouse to sign' }}</p>
+            <button type="button" class="btn-secondary" @click="clearSignature">Clear signature</button>
+          </div>
+        </div>
+      </section>
+      <p v-if="error" class="error" role="alert">{{ error }}</p>
+      <button class="btn" :disabled="!agreementSignature || submitting" :aria-busy="submitting">
+        {{ submitting ? 'Submitting registration…' : 'Submit registration' }}
+      </button>
+    </form>
+  </main>
+</template>

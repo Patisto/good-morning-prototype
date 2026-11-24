@@ -40,7 +40,7 @@ async function approveApplication(db: import('pg').PoolClient, id: string, reque
     const map:Record<string,string>={firstName:'first_name',middleName:'middle_name',lastName:'last_name',gender:'gender',dateOfBirth:'date_of_birth',phone:'phone',altPhone:'alt_phone',email:'email',homeDistrict:'home_district',homeAddress:'home_address',emergencyContactName:'emergency_contact_name',emergencyContactPhone:'emergency_contact_phone',emergencyContactRelationship:'emergency_contact_relationship',institution:'institution',programme:'programme',faculty:'faculty',department:'department',yearOfStudy:'year_of_study',regNumber:'reg_number',academicYear:'academic_year'};
     const keys=Object.keys(map).filter(k=>a[k]!==undefined&&a[k]!==null&&a[k]!=='');
     const cols=['id','room_id','move_in_date','monthly_amount','agreement_status','agreement_signature',...keys.map(k=>map[k])];
-    const values:unknown[]=[idTenant,room.id,today(),(await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1',[room.id,today().slice(0,7)])).rows[0]?.amount??0,'SIGNED',`PUBLIC_ACCEPTED:${app.rows[0].agreement_accepted_at.toISOString()}`,...keys.map(k=>a[k])];
+    const values:unknown[]=[idTenant,room.id,today(),(await db.query('SELECT amount FROM room_rates WHERE room_id=$1 AND effective_month <= $2 ORDER BY effective_month DESC LIMIT 1',[room.id,today().slice(0,7)])).rows[0]?.amount??0,'SIGNED',app.rows[0].agreement_signature||`PUBLIC_ACCEPTED:${app.rows[0].agreement_accepted_at.toISOString()}`,...keys.map(k=>a[k])];
     await db.query(`INSERT INTO tenants(${cols.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')})`,values);
     await db.query('INSERT INTO tenant_room_history(tenant_id,effective_month,room_id) VALUES($1,$2,$3)',[idTenant,today().slice(0,7),room.id]);
     await db.query("UPDATE tenant_applications SET status='APPROVED',reviewed_at=now() WHERE id=$1",[id]);
@@ -48,6 +48,7 @@ async function approveApplication(db: import('pg').PoolClient, id: string, reque
 }
 router.post('/applications/:id/approve',manage,route(async(req,res)=>{const id=await transaction(db=>approveApplication(db,req.params.id,req.body.roomId));res.json({ok:true,id});}));
 router.post('/applications/:id/deny',manage,route(async(req,res)=>{const result=await pool.query("UPDATE tenant_applications SET status='DENIED',reviewed_at=now() WHERE id=$1 AND status='PENDING' RETURNING id",[req.params.id]);check(result.rowCount,'Pending application not found.',404);res.json({ok:true});}));
+router.delete('/applications/:id',manage,route(async(req,res)=>{const result=await pool.query('DELETE FROM tenant_applications WHERE id=$1 RETURNING id',[req.params.id]);check(result.rowCount,'Application not found.',404);res.json({ok:true});}));
 router.post('/applications/approve-all',manage,route(async(_req,res)=>{const ids=(await pool.query("SELECT id FROM tenant_applications WHERE status='PENDING' ORDER BY created_at,id")).rows.map(r=>r.id as string);const result=await transaction(async db=>{let approved=0;for(const id of ids){try{await approveApplication(db,id);approved++;}catch(e){if((e as {status?:number}).status===404)continue;throw e;}}return approved;});res.json({approved:result});}));
 router.get('/', route(async (req, res) => {
     const period = month(req.query.month);

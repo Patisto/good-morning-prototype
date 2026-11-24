@@ -848,13 +848,13 @@
 
         try {
           const response = await fetch(`${CONFIG.API_BASE_URL}/public/rental-payments/lookup`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone_number: rawPhone}) });
-          const data = await response.json();
+          const data = await response.json().catch(() => ({}));
           if (response.ok && data.status === 'no_balance') {
             transitionTo(STATES.NO_BALANCE, { student: data.student, rental: data.rental });
             return;
           }
           if (response.ok && data.error && !data.student) return transitionTo(STATES.NO_MATCH);
-          if (!response.ok || !data.student || !data.rental || !data.lookup_token) throw new Error(data.error || 'We could not retrieve your rental account.');
+          if (!response.ok || !data.student || !data.rental || !data.lookup_token) throw new Error(data.error || (response.status === 404 ? 'The rental payment service could not be found. Check the payment page API URL.' : 'We could not retrieve your rental account.'));
           sessionStorage.setItem('lookup_token', data.lookup_token);
           const student = { name: data.student.display_name, regNumber: data.student.student_number, hostelBlock: data.student.hostel, room: data.student.room, period: data.rental.period, balanceMWK: Number(data.rental.outstanding_balance), currency: data.rental.currency };
           sessionStorage.setItem('payment_student', JSON.stringify(student));

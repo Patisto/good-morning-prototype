@@ -80,9 +80,11 @@ CREATE TABLE IF NOT EXISTS tenant_applications (
   preferred_room_id text REFERENCES rooms(id),
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','DENIED')),
   agreement_accepted_at timestamptz NOT NULL,
+  agreement_signature text,
   reviewed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE tenant_applications ADD COLUMN IF NOT EXISTS agreement_signature text;
 
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS agreement_signature text;
 
