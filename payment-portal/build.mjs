@@ -1,9 +1,16 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const apiBaseUrl = process.env.PAYMENT_API_BASE_URL?.trim().replace(/\/+$/, '');
-if (!apiBaseUrl || !apiBaseUrl.startsWith('https://')) {
-  throw new Error('Set PAYMENT_API_BASE_URL to the HTTPS API base URL, ending in /api.');
+const configuredApiUrl = process.env.PAYMENT_API_BASE_URL?.trim();
+let apiBaseUrl;
+try {
+  const parsed = new URL(configuredApiUrl);
+  if (parsed.protocol !== 'https:' || (parsed.pathname.replace(/\/+$/, '') !== '' && parsed.pathname.replace(/\/+$/, '') !== '/api') || parsed.search || parsed.hash) {
+    throw new Error();
+  }
+  apiBaseUrl = `${parsed.origin}/api`;
+} catch {
+  throw new Error('Set PAYMENT_API_BASE_URL to the HTTPS Render service URL, optionally ending in /api.');
 }
 
 const sourcePath = resolve('code.html');
