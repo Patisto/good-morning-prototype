@@ -34,13 +34,22 @@ type TenantApplication={id:string;applicant:Record<string,unknown>;preferredRoom
 const applications=ref<TenantApplication[]>([]), applicationRooms=ref<Record<string,string>>({});
 const publicRegistrationUrl=`${window.location.origin}/hostel/register`;
 const publicRentPaymentUrl=(import.meta.env.VITE_PAYMENT_URL || 'https://pay.goodmorningmw.online/').replace(/\/+$/,'')+'/';
-const copiedRegistrationLink=ref(false), showAllApplications=ref(false);
+const copiedRegistrationLink=ref(false), applicationSearch=ref(''), applicationStatusFilter=ref<'ALL'|'PENDING'|'APPROVED'|'DENIED'>('PENDING');
 const pendingApplications=computed(()=>applications.value.filter(a=>a.status==='PENDING'));
-const visibleApplications=computed(()=>showAllApplications.value?pendingApplications.value:pendingApplications.value.slice(0,5));
+const applicationCounts=computed(()=>({ALL:applications.value.length,PENDING:pendingApplications.value.length,APPROVED:applications.value.filter(a=>a.status==='APPROVED').length,DENIED:applications.value.filter(a=>a.status==='DENIED').length}));
+const filteredApplications=computed(()=>applications.value.filter(application=>{
+    const matchesStatus=applicationStatusFilter.value==='ALL'||application.status===applicationStatusFilter.value;
+    const applicant=application.applicant;
+    const query=applicationSearch.value.trim().toLowerCase();
+    const matchesSearch=!query||[applicant.firstName,applicant.middleName,applicant.lastName,applicant.phone,applicant.email,applicant.institution,applicant.regNumber].some(value=>String(value??'').toLowerCase().includes(query));
+    return matchesStatus&&matchesSearch;
+}));
 async function loadApplications(){applications.value=fromApi<TenantApplication[]>(await api.get('/hostel/applications',auth.token));}
 async function copyRegistrationLink(){try{await navigator.clipboard.writeText(publicRegistrationUrl);copiedRegistrationLink.value=true;window.setTimeout(()=>copiedRegistrationLink.value=false,2500);}catch{const input=document.createElement('textarea');input.value=publicRegistrationUrl;input.style.position='fixed';input.style.opacity='0';document.body.append(input);input.select();document.execCommand('copy');input.remove();copiedRegistrationLink.value=true;window.setTimeout(()=>copiedRegistrationLink.value=false,2500);}}
 async function reviewApplication(application:TenantApplication,decision:'approve'|'deny'){await run(async()=>{if(decision==='approve') await api.post(`/hostel/applications/${application.id}/approve`,{roomId:applicationRooms.value[application.id]||application.preferredRoomId||undefined},auth.token);else await api.post(`/hostel/applications/${application.id}/deny`,{},auth.token);await Promise.all([hostel.hydrate(),loadApplications()]);});}
 async function approveAll(){if(!confirm('Approve all pending applications? Each applicant will be assigned their preferred available room or the next available room.'))return;await run(async()=>{await api.post('/hostel/applications/approve-all',{},auth.token);await Promise.all([hostel.hydrate(),loadApplications()]);});}
+async function deleteApplication(application:TenantApplication){if(!confirm(`Delete the application record for ${application.applicant.firstName||'this applicant'}? This removes only the application record; an approved tenant will remain in the hostel.`))return;await run(async()=>{await api.delete(`/hostel/applications/${application.id}`,auth.token);applications.value=applications.value.filter(item=>item.id!==application.id);});}
+function applicationStatusTone(status:TenantApplication['status']){return status==='APPROVED'?'success':status==='DENIED'?'danger':'pending';}
 const canManage = computed(() => auth.canManage('hostel'));
 const roomsByUnit = computed(() => {
     const groups = new Map<string, Room[]>();
@@ -157,15 +166,6 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       </div>
     </div>
     <div v-else-if="tab === 'tenants'" class="space-y-3">
-      <section v-if="canManage" class="panel space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-semibold">Public applications</h3><p class="text-sm text-ink-muted">Share {{ publicRegistrationUrl }}. Applicants submit their phone number, details, and agreement; review them here.</p><button type="button" class="mt-1 text-sm font-medium text-primary underline" @click="copyRegistrationLink">{{ copiedRegistrationLink ? 'Registration link copied!' : 'Copy registration link' }}</button></div><button v-if="pendingApplications.length" class="btn" :disabled="busy" @click="approveAll">Approve all pending</button></div>
-        <article v-for="application in visibleApplications" :key="application.id" class="rounded border border-line p-3">
-          <div class="flex flex-wrap items-start justify-between gap-3"><div><h4 class="font-medium">{{ application.applicant.firstName }} {{ application.applicant.middleName }} {{ application.applicant.lastName }}</h4><p class="text-sm text-ink-muted">{{ application.applicant.phone }} · {{ application.applicant.email || 'No email' }} · {{ application.applicant.institution || 'No institution' }}</p><p class="mt-1 text-xs text-ink-muted">Signed {{ application.agreementAcceptedAt }}</p><img v-if="application.agreementSignature" :src="application.agreementSignature" alt="Applicant agreement signature" class="mt-2 h-16 max-w-64 rounded border border-line bg-white object-contain" /></div><StatusPill tone="pending" label="Pending review" /></div>
-          <div class="mt-3 flex flex-wrap items-end gap-2"><label class="field min-w-56">Allocate room<select v-model="applicationRooms[application.id]" class="input"><option value="">{{ application.preferredRoomId ? `Preferred: ${roomName(application.preferredRoomId)}` : 'Choose available room' }}</option><option v-for="room in availableRooms" :key="room.id" :value="room.id">{{room.housingUnit}} · {{room.label||room.identifier}} ({{room.occupants}}/{{room.capacity}})</option></select></label><button class="btn" :disabled="busy" @click="reviewApplication(application,'approve')">Approve</button><button class="btn-secondary" :disabled="busy" @click="reviewApplication(application,'deny')">Deny</button></div>
-        </article>
-        <button v-if="pendingApplications.length>5" type="button" class="btn-secondary w-full" @click="showAllApplications=!showAllApplications">{{ showAllApplications ? 'Show fewer applications' : `Show more applications (${pendingApplications.length-5} more)` }}</button>
-        <p v-if="!pendingApplications.length" class="text-sm text-ink-muted">No applications awaiting review.</p>
-      </section>
       <SearchInput v-model="search" placeholder="Search tenants by name or room…" />
       <div class="overflow-x-auto rounded border border-line bg-surface">
         <table class="w-full min-w-[640px] text-sm">
@@ -218,6 +218,64 @@ function closeModal() { selectedRoom.value = null; selectedTenant.value = null; 
       <p v-if="!filteredTenants.length" class="panel text-sm text-ink-muted">
         {{ search ? 'No tenants match this search.' : 'No active tenants yet.' }}
         <button v-if="canManage && !search" type="button" class="ml-1 font-medium text-primary underline" @click="addTenant">Register a tenant</button>
+      </p>
+    </div>
+    <div v-else-if="tab === 'applications' && canManage" class="space-y-4">
+      <section class="panel space-y-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Public hostel applications</h2>
+            <p class="mt-1 text-sm text-ink-muted">Share the registration link with applicants and review their submitted details here.</p>
+            <button type="button" class="mt-2 text-sm font-medium text-primary underline" @click="copyRegistrationLink">{{ copiedRegistrationLink ? 'Registration link copied!' : 'Copy registration link' }}</button>
+          </div>
+          <button v-if="pendingApplications.length" class="btn" :disabled="busy" @click="approveAll">Approve all pending ({{ pendingApplications.length }})</button>
+        </div>
+        <SearchInput v-model="applicationSearch" placeholder="Search applicants by name, phone, email, institution, or ID…" />
+        <div class="flex flex-wrap gap-2" aria-label="Filter applications by status">
+          <button v-for="status in (['ALL','PENDING','APPROVED','DENIED'] as const)" :key="status" type="button" class="rounded border px-3 py-2 text-sm" :class="applicationStatusFilter===status?'border-primary bg-primary-light font-semibold text-primary-dark':'border-line text-ink-muted'" :aria-pressed="applicationStatusFilter===status" @click="applicationStatusFilter=status">
+            {{ status==='ALL'?'All':status==='DENIED'?'Rejected':status.charAt(0)+status.slice(1).toLowerCase() }} · {{ applicationCounts[status] }}
+          </button>
+        </div>
+      </section>
+      <article v-for="application in filteredApplications" :key="application.id" class="panel space-y-3">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="font-semibold">{{ application.applicant.firstName }} {{ application.applicant.middleName }} {{ application.applicant.lastName }}</h3>
+            <p class="text-sm text-ink-muted">{{ application.applicant.phone }} · {{ application.applicant.email || 'No email' }} · {{ application.applicant.institution || 'No institution' }}</p>
+            <p class="mt-1 text-xs text-ink-muted">Submitted {{ new Date(application.createdAt).toLocaleString() }} · Signed {{ new Date(application.agreementAcceptedAt).toLocaleString() }}</p>
+          </div>
+          <StatusPill :tone="applicationStatusTone(application.status)" :label="application.status==='DENIED'?'Rejected':application.status.charAt(0)+application.status.slice(1).toLowerCase()" />
+        </div>
+        <details class="rounded border border-line p-3">
+          <summary class="cursor-pointer text-sm font-medium">View submitted details and signature</summary>
+          <dl class="mt-3 grid gap-2 sm:grid-cols-2">
+            <template v-for="(value,key) in application.applicant" :key="key">
+              <div v-if="value!==null&&value!==undefined&&value!==''">
+                <dt class="text-xs capitalize text-ink-muted">{{ String(key).replace(/([A-Z])/g,' $1') }}</dt>
+                <dd class="break-words text-sm">{{ value }}</dd>
+              </div>
+            </template>
+            <div><dt class="text-xs text-ink-muted">Preferred room</dt><dd class="text-sm">{{ application.preferredRoomId ? roomName(application.preferredRoomId) : 'No preference' }}</dd></div>
+          </dl>
+          <img v-if="application.agreementSignature" :src="application.agreementSignature" alt="Applicant agreement signature" class="mt-3 h-20 max-w-72 rounded border border-line bg-white object-contain" />
+        </details>
+        <div v-if="application.status==='PENDING'" class="flex flex-wrap items-end gap-2">
+          <label class="field min-w-56">Allocate room
+            <select v-model="applicationRooms[application.id]" class="input">
+              <option value="">{{ application.preferredRoomId ? `Preferred: ${roomName(application.preferredRoomId)}` : 'Choose available room' }}</option>
+              <option v-for="room in availableRooms" :key="room.id" :value="room.id">{{ room.housingUnit }} · {{ room.label||room.identifier }} ({{ room.occupants }}/{{ room.capacity }})</option>
+            </select>
+          </label>
+          <button class="btn" :disabled="busy" @click="reviewApplication(application,'approve')">Approve</button>
+          <button class="btn-secondary" :disabled="busy" @click="reviewApplication(application,'deny')">Reject</button>
+          <button class="btn-secondary" :disabled="busy" @click="deleteApplication(application)">Delete application</button>
+        </div>
+        <div v-else class="flex justify-end">
+          <button class="btn-secondary" :disabled="busy" @click="deleteApplication(application)">Delete application</button>
+        </div>
+      </article>
+      <p v-if="!filteredApplications.length" class="panel text-sm text-ink-muted">
+        {{ applicationSearch ? 'No applications match your search.' : `No ${applicationStatusFilter==='ALL'?'':applicationStatusFilter.toLowerCase()+' '}applications to show.` }}
       </p>
     </div>
     <RentPayments v-else-if="tab === 'payments'" />

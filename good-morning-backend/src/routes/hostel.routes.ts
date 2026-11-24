@@ -48,6 +48,7 @@ async function approveApplication(db: import('pg').PoolClient, id: string, reque
 }
 router.post('/applications/:id/approve',manage,route(async(req,res)=>{const id=await transaction(db=>approveApplication(db,req.params.id,req.body.roomId));res.json({ok:true,id});}));
 router.post('/applications/:id/deny',manage,route(async(req,res)=>{const result=await pool.query("UPDATE tenant_applications SET status='DENIED',reviewed_at=now() WHERE id=$1 AND status='PENDING' RETURNING id",[req.params.id]);check(result.rowCount,'Pending application not found.',404);res.json({ok:true});}));
+router.delete('/applications/:id',manage,route(async(req,res)=>{const result=await pool.query('DELETE FROM tenant_applications WHERE id=$1 RETURNING id',[req.params.id]);check(result.rowCount,'Application not found.',404);res.json({ok:true});}));
 router.post('/applications/approve-all',manage,route(async(_req,res)=>{const ids=(await pool.query("SELECT id FROM tenant_applications WHERE status='PENDING' ORDER BY created_at,id")).rows.map(r=>r.id as string);const result=await transaction(async db=>{let approved=0;for(const id of ids){try{await approveApplication(db,id);approved++;}catch(e){if((e as {status?:number}).status===404)continue;throw e;}}return approved;});res.json({approved:result});}));
 router.get('/', route(async (req, res) => {
     const period = month(req.query.month);
